@@ -1,0 +1,26 @@
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Chrome extension files
+*.crx
+*.pem
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+.cache/
+
+# Test file с примерами ключей (блокируется GitHub Secret Scanning)
+test.html
+

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PassBlur Icon Generator</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    h1 {
+      text-align: center;
+    }
+    .icons-container {
+      display: flex;
+      justify-content: space-around;
+      margin: 30px 0;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+    .icon-box {
+      text-align: center;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 20px;
+      border-radius: 12px;
+      backdrop-filter: blur(10px);
+    }
+    canvas {
+      background: white;
+      border-radius: 8px;
+      margin: 10px 0;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+    button {
+      background: rgba(255, 255, 255, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      margin-top: 10px;
+      transition: all 0.3s ease;
+    }
+    button:hover {
+      background: rgba(255, 255, 255, 0.3);
+      transform: translateY(-2px);
+    }
+    .instructions {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 20px;
+      border-radius: 12px;
+      margin-top: 20px;
+      backdrop-filter: blur(10px);
+    }
+    .instructions h2 {
+      margin-top: 0;
+    }
+    .instructions ol {
+      margin-left: 20px;
+    }
+    .instructions li {
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔒 PassBlur Icon Generator</h1>
+  
+  <div class="icons-container">
+    <div class="icon-box">
+      <h3>16x16</h3>
+      <canvas id="canvas16" width="16" height="16"></canvas>
+      <button onclick="downloadIcon(16)">Download icon16.png</button>
+    </div>
+    <div class="icon-box">
+      <h3>48x48</h3>
+      <canvas id="canvas48" width="48" height="48"></canvas>
+      <button onclick="downloadIcon(48)">Download icon48.png</button>
+    </div>
+    <div class="icon-box">
+      <h3>128x128</h3>
+      <canvas id="canvas128" width="128" height="128"></canvas>
+      <button onclick="downloadIcon(128)">Download icon128.png</button>
+    </div>
+  </div>
+
+  <div class="instructions">
+    <h2>Instructions / Инструкции</h2>
+    <ol>
+      <li>Open this file in your browser / Откройте этот файл в браузере</li>
+      <li>Click each "Download" button to save the icons / Нажмите на каждую кнопку "Download" для сохранения иконок</li>
+      <li>Save all three icons (icon16.png, icon48.png, icon128.png) to the "icons" folder / Сохраните все три иконки в папку "icons"</li>
+      <li>Load the extension in Chrome: chrome://extensions/ / Загрузите расширение в Chrome: chrome://extensions/</li>
+      <li>Enable "Developer mode" and click "Load unpacked" / Включите "Режим разработчика" и нажмите "Загрузить распакованное расширение"</li>
+    </ol>
+  </div>
+
+  <script>
+    function drawIcon(canvas) {
+      const ctx = canvas.getContext('2d');
+      const size = canvas.width;
+      const scale = size / 128;
+
+      // Clear canvas
+      ctx.clearRect(0, 0, size, size);
+
+      // Background gradient
+      const gradient = ctx.createLinearGradient(0, 0, size, size);
+      gradient.addColorStop(0, '#667eea');
+      gradient.addColorStop(1, '#764ba2');
+      
+      // Background circle
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(size/2, size/2, size * 0.47, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Lock body
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      const lockWidth = 40 * scale;
+      const lockHeight = 36 * scale;
+      const lockX = 44 * scale;
+      const lockY = 58 * scale;
+      const lockRadius = 4 * scale;
+      
+      ctx.beginPath();
+      ctx.roundRect(lockX, lockY, lockWidth, lockHeight, lockRadius);
+      ctx.fill();
+
+      // Lock shackle
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.lineWidth = 6 * scale;
+      ctx.lineCap = 'round';
+      
+      ctx.beginPath();
+      ctx.arc(64 * scale, 48 * scale, 14 * scale, Math.PI, 0, false);
+      ctx.stroke();
+
+      // Keyhole
+      ctx.fillStyle = '#667eea';
+      ctx.beginPath();
+      ctx.arc(64 * scale, 72 * scale, 4 * scale, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.fillRect(62 * scale, 72 * scale, 4 * scale, 10 * scale);
+
+      // Blur effect indicators (dots) - only for larger icons
+      if (size >= 48) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        const dotRadius = 3 * scale;
+        [[30, 30], [98, 30], [30, 98], [98, 98]].forEach(([x, y]) => {
+          ctx.beginPath();
+          ctx.arc(x * scale, y * scale, dotRadius, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+    }
+
+    function downloadIcon(size) {
+      const canvas = document.getElementById(`canvas${size}`);
+      const link = document.createElement('a');
+      link.download = `icon${size}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+
+    // Draw all icons on load
+    window.onload = function() {
+      drawIcon(document.getElementById('canvas16'));
+      drawIcon(document.getElementById('canvas48'));
+      drawIcon(document.getElementById('canvas128'));
+    };
+  </script>
+</body>
+</html>
+

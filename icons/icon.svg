@@ -1,0 +1,29 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="64" cy="64" r="60" fill="url(#grad)"/>
+  
+  <!-- Lock body -->
+  <rect x="44" y="58" width="40" height="36" rx="4" fill="white" opacity="0.95"/>
+  
+  <!-- Lock shackle -->
+  <path d="M 50 58 L 50 48 Q 50 38 64 38 Q 78 38 78 48 L 78 58" 
+        fill="none" stroke="white" stroke-width="6" stroke-linecap="round" opacity="0.95"/>
+  
+  <!-- Keyhole -->
+  <circle cx="64" cy="72" r="4" fill="#667eea"/>
+  <rect x="62" y="72" width="4" height="10" rx="2" fill="#667eea"/>
+  
+  <!-- Blur effect indicators (dots) -->
+  <circle cx="30" cy="30" r="3" fill="white" opacity="0.6"/>
+  <circle cx="98" cy="30" r="3" fill="white" opacity="0.6"/>
+  <circle cx="30" cy="98" r="3" fill="white" opacity="0.6"/>
+  <circle cx="98" cy="98" r="3" fill="white" opacity="0.6"/>
+</svg>
+
