@@ -340,25 +340,359 @@ console.log('🔒 PassBlur: Content script starting...');
 
     console.log('🔒 PassBlur: ✓ Credit cards filter is ENABLED');
 
+    // Вспомогательная функция для быстрой проверки номера карты по значению
+    function hasCardNumber(value) {
+      if (!value || value.length === 0) return false;
+      const digits = value.replace(/\D/g, '');
+      // Номер карты: 13-19 цифр
+      const isCard = digits.length >= 13 && digits.length <= 19;
+      if (isCard) {
+        console.log('🔒 PassBlur: [hasCardNumber] ✓✓✓ CARD NUMBER FOUND! Digits:', digits.length, 'Value:', value.substring(0, 20));
+      }
+      return isCard;
+    }
+
+    // Вспомогательная функция для получения значения из input (включая Stripe элементы)
+    function getInputValue(input) {
+      if (!input) return '';
+      
+      // Проверяем стандартное значение
+      let value = input.value || '';
+      
+      // Если значение пустое, проверяем другие источники
+      if (!value || value.length === 0) {
+        // Проверяем атрибут value
+        value = input.getAttribute('value') || '';
+        
+        // Проверяем текстовое содержимое
+        if (!value || value.length === 0) {
+          value = input.textContent || input.innerText || '';
+        }
+        
+        // Проверяем дочерние элементы (для Stripe контейнеров)
+        if (!value || value.length === 0) {
+          const childInputs = input.querySelectorAll('input');
+          for (const childInput of childInputs) {
+            const childValue = childInput.value || childInput.getAttribute('value') || '';
+            if (childValue && childValue.length > 0) {
+              value = childValue;
+              break;
+            }
+          }
+        }
+      }
+      
+      return value;
+    }
+
+    // Специальная функция для поиска и размытия Stripe элементов и любых элементов с номером карты
+    function checkAndBlurStripeElements() {
+      if (!isEnabled) return;
+      
+      // КРИТИЧНО: Проверяем видимые элементы в формах оплаты на наличие номера карты
+      // Ограничиваем проверку формами оплаты для производительности
+      const paymentAreas = document.querySelectorAll('form, [role="dialog"], .modal, [class*="payment"], [class*="billing"], [class*="card-form"], [class*="stripe"], [class*="card"]');
+      const searchScope = paymentAreas.length > 0 ? paymentAreas : [document.body];
+      
+      let cardNumberFound = false;
+      
+      searchScope.forEach(scope => {
+        // Ищем только видимые элементы внутри области поиска
+        const candidates = scope.querySelectorAll('div, span, p, label, td, th, li, input, button');
+        
+        for (const el of candidates) {
+          // Пропускаем уже обработанные
+          if (el.classList.contains('passblur-stripe-processed') || 
+              el.classList.contains('passblur-input-processed')) {
+            continue;
+          }
+          
+          // Пропускаем скрытые элементы
+          const style = window.getComputedStyle(el);
+          if (style.display === 'none' || 
+              style.visibility === 'hidden' || 
+              style.opacity === '0' ||
+              el.offsetParent === null) {
+            continue;
+          }
+          
+          // ИСКЛЮЧЕНИЯ: Проверяем, не является ли это полем имени/адреса
+          if (el.tagName === 'INPUT') {
+            const inputName = (el.name || '').toLowerCase();
+            const inputId = (el.id || '').toLowerCase();
+            const inputPlaceholder = (el.placeholder || '').toLowerCase();
+            const inputAttrs = `${inputName} ${inputId} ${inputPlaceholder}`;
+            
+            // Ключевые слова для исключений
+            const excludeKeywords = ['name', 'fname', 'lname', 'firstname', 'lastname', 'fullname',
+              'address', 'street', 'city', 'state', 'zip', 'postal', 'country', 'region',
+              'email', 'phone', 'tel', 'mobile'];
+            
+            if (excludeKeywords.some(keyword => inputAttrs.includes(keyword))) {
+              console.log('🔒 PassBlur: Skipping excluded field:', inputAttrs.substring(0, 50));
+              continue; // Пропускаем это поле
+            }
+          }
+          
+          // Получаем видимый текст элемента (только прямой текст, без рекурсии)
+          let text = '';
+          if (el.tagName === 'INPUT') {
+            text = getInputValue(el);
+          } else {
+            // Для других элементов берем textContent
+            text = el.textContent || el.innerText || '';
+          }
+          
+          // Проверяем, есть ли номер карты в тексте
+          if (text.length > 10 && hasCardNumber(text)) {
+            // Проверяем, не является ли это частью уже обработанного контейнера
+            const parent = el.closest('.passblur-stripe-processed');
+            if (parent) {
+              continue; // Уже обработан родительский контейнер
+            }
+            
+            console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER FOUND IN ELEMENT! Tag:', el.tagName, 'Text:', text.substring(0, 30));
+            
+            // Размываем элемент
+            if (el.tagName === 'INPUT') {
+              applyBlurToFilledInput(el);
+            } else {
+              applyBlurToElement(el);
+            }
+            cardNumberFound = true;
+            
+            // Также размываем родительский контейнер, если он есть
+            if (el.parentElement && !el.parentElement.classList.contains('passblur-stripe-processed')) {
+              applyBlurToElement(el.parentElement);
+            }
+          }
+        }
+      });
+      
+      if (cardNumberFound) {
+        console.log('🔒 PassBlur: Card number found and blurred in payment forms!');
+        return; // Уже нашли и размыли, можно выходить
+      }
+      
+      // Ищем все Stripe контейнеры
+      const stripeContainers = document.querySelectorAll('.StripeElement, [class*="StripeElement"], [class*="_PrivateStripeElement"], [class*="stripe-card-form"], [class*="stripe"], div[class*="card"], div[class*="payment"]');
+      
+      console.log('🔒 PassBlur: Checking', stripeContainers.length, 'Stripe containers...');
+      
+      stripeContainers.forEach(container => {
+        // Пропускаем уже обработанные
+        if (container.classList.contains('passblur-stripe-processed')) {
+          return;
+        }
+        
+        // Получаем весь видимый текст из контейнера (включая все дочерние элементы)
+        let visibleText = '';
+        
+        // Проверяем textContent
+        visibleText = container.textContent || container.innerText || '';
+        
+        // Если не нашли, проверяем все дочерние элементы
+        if (!visibleText || visibleText.length === 0) {
+          const allChildren = container.querySelectorAll('*');
+          allChildren.forEach(child => {
+            const childText = child.textContent || child.innerText || '';
+            if (childText && childText.length > 0) {
+              visibleText += ' ' + childText;
+            }
+          });
+        }
+        
+        // Проверяем, есть ли в тексте номер карты
+        if (hasCardNumber(visibleText)) {
+          console.log('🔒 PassBlur: ✓✓✓ STRIPE CONTAINER WITH CARD NUMBER FOUND! Text:', visibleText.substring(0, 30), 'Blurring container...');
+          
+          // Помечаем как обработанный
+          container.classList.add('passblur-stripe-processed');
+          
+          // Применяем размытие к контейнеру с overlay
+          applyBlurToElement(container);
+          
+          console.log('🔒 PassBlur: STRIPE CONTAINER BLURRED!');
+        }
+        
+        // Также проверяем все input элементы внутри контейнера
+        const inputs = container.querySelectorAll('input');
+        inputs.forEach(input => {
+          if (input.classList.contains('passblur-input-processed')) {
+            return;
+          }
+          
+          const inputValue = getInputValue(input);
+          if (hasCardNumber(inputValue)) {
+            console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER IN STRIPE INPUT FOUND!');
+            applyBlurToFilledInput(input);
+          }
+        });
+      });
+      
+      
+      // ФИНАЛЬНАЯ ПРОВЕРКА: проходим по текстовым узлам в формах оплаты
+      // Это последняя попытка найти номер карты, если он не был найден выше
+      const paymentFormsForText = document.querySelectorAll('form, [role="dialog"], .modal, [class*="payment"], [class*="billing"], [class*="card-form"], [class*="stripe"]');
+      const textSearchScope = paymentFormsForText.length > 0 ? paymentFormsForText : [document.body];
+      
+      textSearchScope.forEach(scope => {
+        const walker = document.createTreeWalker(
+          scope,
+          NodeFilter.SHOW_TEXT,
+          {
+            acceptNode: function(node) {
+              // Пропускаем скрытые элементы
+              let parent = node.parentElement;
+              while (parent && parent !== scope) {
+                const style = window.getComputedStyle(parent);
+                if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                  return NodeFilter.FILTER_REJECT;
+                }
+                // Пропускаем уже обработанные
+                if (parent.classList.contains('passblur-stripe-processed')) {
+                  return NodeFilter.FILTER_REJECT;
+                }
+                parent = parent.parentElement;
+              }
+              return NodeFilter.FILTER_ACCEPT;
+            }
+          }
+        );
+        
+        let textNode;
+        let textNodeCount = 0;
+        while (textNode = walker.nextNode()) {
+          textNodeCount++;
+          const text = textNode.textContent || '';
+          
+          // Проверяем только достаточно длинные текстовые узлы
+          if (text.length > 10 && hasCardNumber(text)) {
+            const parentElement = textNode.parentElement;
+            if (parentElement && !parentElement.classList.contains('passblur-stripe-processed')) {
+              console.log('🔒 PassBlur: ✓✓✓ TEXT NODE WITH CARD NUMBER FOUND! Text:', text.substring(0, 30), 'Parent:', parentElement.tagName);
+              
+              // Размываем родительский элемент с overlay
+              applyBlurToElement(parentElement);
+              
+              console.log('🔒 PassBlur: TEXT NODE PARENT BLURRED!');
+              break; // Нашли и размыли, выходим из цикла
+            }
+          }
+        }
+        
+        if (textNodeCount > 0) {
+          console.log('🔒 PassBlur: Checked', textNodeCount, 'text nodes in scope for card numbers');
+        }
+      });
+    }
+
     // Храним последние состояния полей для отслеживания изменений
     const fieldStates = new Map();
 
     // НЕМЕДЛЕННАЯ проверка всех полей при загрузке
     console.log('🔒 PassBlur: Performing IMMEDIATE check for pre-filled fields...');
-    const allInputs = document.querySelectorAll('input[type="text"], input:not([type]), input[type="tel"], input[type="number"], input[inputmode="numeric"], input[inputmode="decimal"]');
+    const allInputs = document.querySelectorAll('input[type="text"], input:not([type]), input[type="tel"], input[type="number"], input[inputmode="numeric"], input[inputmode="decimal"], input[class*="Stripe"], input[class*="stripe"], input[class*="_PrivateStripeElement"]');
     console.log('🔒 PassBlur: Found', allInputs.length, 'input fields on page');
     
     allInputs.forEach(input => {
-      if (input.value && input.value.length > 0) {
-        console.log('🔒 PassBlur: Found pre-filled input:', input.name || input.id, 'value length:', input.value.length);
-        if (isCardInputField(input)) {
+      // Получаем значение через расширенную функцию
+      const inputValue = getInputValue(input);
+      
+      // Проверяем значение в input.value
+      if (inputValue && inputValue.length > 0) {
+        console.log('🔒 PassBlur: Found pre-filled input:', input.name || input.id, 'value length:', inputValue.length, 'value:', inputValue.substring(0, 20));
+        
+        // ПРЯМАЯ ПРОВЕРКА: если значение похоже на номер карты - размываем сразу!
+        if (hasCardNumber(inputValue)) {
+          console.log('🔒 PassBlur: ✓✓✓ PRE-FILLED CARD NUMBER DETECTED DIRECTLY! Applying blur immediately!');
+          applyBlurToFilledInput(input);
+        }
+        // Обычная проверка
+        else if (isCardInputField(input)) {
           console.log('🔒 PassBlur: ✓✓✓ PRE-FILLED CARD FIELD DETECTED! Applying blur immediately!');
           applyBlurToFilledInput(input);
         }
       }
+      
       // Инициализируем состояние
       fieldStates.set(input, input.value || '');
     });
+    
+    // СПЕЦИАЛЬНАЯ ПРОВЕРКА: Stripe контейнеры
+    console.log('🔒 PassBlur: Checking Stripe containers...');
+    checkAndBlurStripeElements();
+    
+    // АГРЕССИВНАЯ ПРОВЕРКА: ищем номер карты в элементах форм оплаты
+    console.log('🔒 PassBlur: Performing aggressive card number search...');
+    const paymentForms = document.querySelectorAll('form, [role="dialog"], .modal, [class*="payment"], [class*="billing"]');
+    const searchAreas = paymentForms.length > 0 ? paymentForms : [document.body];
+    
+    searchAreas.forEach(area => {
+      const allElementsWithText = area.querySelectorAll('*');
+      allElementsWithText.forEach(el => {
+      // Пропускаем скрипты, стили и уже обработанные
+      if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'NOSCRIPT' ||
+          el.classList.contains('passblur-stripe-processed') || 
+          el.classList.contains('passblur-input-processed')) {
+        return;
+      }
+      
+      // Получаем текст
+      let text = '';
+      if (el.tagName === 'INPUT') {
+        text = getInputValue(el);
+        
+        // ИСКЛЮЧЕНИЯ для input
+        const inputName = (el.name || '').toLowerCase();
+        const inputId = (el.id || '').toLowerCase();
+        const inputAttrs = `${inputName} ${inputId}`;
+        const excludeKeywords = ['name', 'address', 'street', 'city', 'state', 'zip', 'postal', 'country', 'email', 'phone'];
+        if (excludeKeywords.some(kw => inputAttrs.includes(kw))) {
+          return; // Пропускаем
+        }
+      } else {
+        text = el.textContent || '';
+      }
+      
+      // Проверяем только прямой текст элемента (без детей)
+      if (el.children.length > 0 && el.tagName !== 'INPUT') {
+        return; // Пропускаем контейнеры, проверяем только листовые элементы
+      }
+      
+        // Проверяем на номер карты
+        if (text.length > 10 && hasCardNumber(text)) {
+          console.log('🔒 PassBlur: ✓✓✓ AGGRESSIVE CHECK: Card number found in', el.tagName, 'text:', text.substring(0, 30));
+          
+          if (el.tagName === 'INPUT') {
+            applyBlurToFilledInput(el);
+          } else {
+            applyBlurToElement(el);
+          }
+        }
+      });
+    });
+    
+    // Также проверяем через небольшие задержки (на случай, если Stripe загружается асинхронно)
+    setTimeout(() => {
+      console.log('🔒 PassBlur: Delayed check for Stripe containers...');
+      checkAndBlurStripeElements();
+    }, 100);
+    
+    setTimeout(() => {
+      console.log('🔒 PassBlur: Second delayed check for Stripe containers...');
+      checkAndBlurStripeElements();
+    }, 500);
+    
+    setTimeout(() => {
+      console.log('🔒 PassBlur: Third delayed check for Stripe containers...');
+      checkAndBlurStripeElements();
+    }, 1000);
+    
+    setTimeout(() => {
+      console.log('🔒 PassBlur: Fourth delayed check for Stripe containers...');
+      checkAndBlurStripeElements();
+    }, 2000);
 
     // СУПЕР-ЧАСТАЯ проверка в первые 5 секунд (когда автозаполнение наиболее вероятно)
     let checkCount = 0;
@@ -370,24 +704,33 @@ console.log('🔒 PassBlur: Content script starting...');
       checkCount++;
       
       // РАСШИРЕННЫЙ список типов полей для проверки!
-      const inputs = document.querySelectorAll('input[type="text"], input:not([type]), input[type="tel"], input[type="number"], input[inputmode="numeric"], input[inputmode="decimal"]');
+      const inputs = document.querySelectorAll('input[type="text"], input:not([type]), input[type="tel"], input[type="number"], input[inputmode="numeric"], input[inputmode="decimal"], input[class*="Stripe"], input[class*="stripe"], input[class*="_PrivateStripeElement"]');
       
       inputs.forEach(input => {
-        const currentValue = input.value || '';
+        const currentValue = getInputValue(input) || '';
         const previousValue = fieldStates.get(input) || '';
         
         // Проверяем ВСЕ поля с значением - не только те, что определены как карточные!
         if (currentValue !== previousValue && currentValue.length > 0) {
+          // ПРЯМАЯ ПРОВЕРКА: если значение похоже на номер карты - размываем сразу!
+          // ЭТО ПЕРВЫЙ ПРИОРИТЕТ - проверяем ДО всех остальных проверок!
+          if (hasCardNumber(currentValue)) {
+            console.log('🔒 PassBlur: [SUPER-FAST] ✓✓✓ CARD NUMBER DETECTED DIRECTLY! Value:', currentValue.substring(0, 20), 'Applying blur IMMEDIATELY');
+            applyBlurToFilledInput(input);
+          }
           // Если поле изменилось - проверяем, это карточное поле?
-          if (isCardInputField(input)) {
+          else if (isCardInputField(input)) {
             console.log('🔒 PassBlur: [SUPER-FAST] Card field detected with value, length:', currentValue.length);
             applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
           }
         }
         
         // Обновляем состояние
-        fieldStates.set(input, currentValue);
+        fieldStates.set(input, input.value || '');
       });
+      
+      // Проверяем Stripe контейнеры в супер-быстром режиме
+      checkAndBlurStripeElements();
       
       // Останавливаем супер-быструю проверку через 2 секунды
       if (checkCount >= maxFastChecks) {
@@ -401,24 +744,33 @@ console.log('🔒 PassBlur: Content script starting...');
       if (!isEnabled) return;
       
       // РАСШИРЕННЫЙ список типов полей для проверки!
-      const inputs = document.querySelectorAll('input[type="text"], input:not([type]), input[type="tel"], input[type="number"], input[inputmode="numeric"], input[inputmode="decimal"]');
+      const inputs = document.querySelectorAll('input[type="text"], input:not([type]), input[type="tel"], input[type="number"], input[inputmode="numeric"], input[inputmode="decimal"], input[class*="Stripe"], input[class*="stripe"], input[class*="_PrivateStripeElement"]');
       
       inputs.forEach(input => {
-        const currentValue = input.value || '';
+        const currentValue = getInputValue(input) || '';
         const previousValue = fieldStates.get(input) || '';
         
         // Проверяем ВСЕ поля с изменившимся значением
         if (currentValue !== previousValue && currentValue.length > 0) {
+          // ПРЯМАЯ ПРОВЕРКА: если значение похоже на номер карты - размываем сразу!
+          // ЭТО ПЕРВЫЙ ПРИОРИТЕТ - проверяем ДО всех остальных проверок!
+          if (hasCardNumber(currentValue)) {
+            console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER DETECTED DIRECTLY in interval! Value:', currentValue.substring(0, 20), 'Applying blur IMMEDIATELY');
+            applyBlurToFilledInput(input);
+          }
           // Проверяем, это карточное поле?
-          if (isCardInputField(input)) {
+          else if (isCardInputField(input)) {
             console.log('🔒 PassBlur: Field value changed, length:', currentValue.length, '- applying blur!');
             applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
           }
         }
         
         // Обновляем состояние
-        fieldStates.set(input, currentValue);
+        fieldStates.set(input, input.value || '');
       });
+      
+      // Проверяем Stripe контейнеры в обычном режиме
+      checkAndBlurStripeElements();
     }, 50); // Проверяем каждые 50ms (было 200ms) - в 4 раза чаще!
 
     // НЕ сканируем сразу! Только при автозаполнении
@@ -431,10 +783,27 @@ console.log('🔒 PassBlur: Content script starting...');
       
       console.log('🔒 PassBlur: Change event on:', input.tagName, input.name, input.value?.length);
       
-      if (input.tagName === 'INPUT' && isCardInputField(input) && input.value) {
-        console.log('🔒 PassBlur: Detected card field autofill via change, applying blur IMMEDIATELY');
-        applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+      if (input.tagName === 'INPUT' && input.value) {
+        // Получаем значение через расширенную функцию (для Stripe элементов)
+        const inputValue = getInputValue(input);
+        
+        // ПРЯМАЯ ПРОВЕРКА: если значение похоже на номер карты - размываем сразу!
+        // ЭТО ПЕРВЫЙ ПРИОРИТЕТ - проверяем ДО всех остальных проверок!
+        if (hasCardNumber(inputValue)) {
+          console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER DETECTED DIRECTLY in change event! Value:', inputValue.substring(0, 20), 'Applying blur IMMEDIATELY');
+          applyBlurToFilledInput(input);
+          return; // ВАЖНО: выходим сразу, не проверяем дальше!
+        }
+        
+        // Обычная проверка через isCardInputField (только если это НЕ номер карты)
+        if (isCardInputField(input)) {
+          console.log('🔒 PassBlur: Detected card field autofill via change, applying blur IMMEDIATELY');
+          applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+        }
       }
+      
+      // Также проверяем Stripe контейнеры при изменении
+      setTimeout(() => checkAndBlurStripeElements(), 50);
     }, true);
 
     // Отслеживаем через input event (вставка из буфера или автозаполнение) - МГНОВЕННО!
@@ -442,14 +811,31 @@ console.log('🔒 PassBlur: Content script starting...');
       if (!isEnabled) return;
       const input = e.target;
       
-      if (input.tagName === 'INPUT' && isCardInputField(input) && input.value) {
-        // Проверяем - это вставка или автозаполнение (большое изменение за раз)
-        const valueLength = input.value.length;
-        if (valueLength > 10) {
-          console.log('🔒 PassBlur: Detected autofill/paste via input (length > 10), applying blur IMMEDIATELY');
-          applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+      if (input.tagName === 'INPUT' && input.value) {
+        // Получаем значение через расширенную функцию (для Stripe элементов)
+        const inputValue = getInputValue(input);
+        
+        // ПРЯМАЯ ПРОВЕРКА: если значение похоже на номер карты - размываем сразу!
+        // ЭТО ПЕРВЫЙ ПРИОРИТЕТ - проверяем ДО всех остальных проверок!
+        if (hasCardNumber(inputValue)) {
+          console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER DETECTED DIRECTLY in input event! Value:', inputValue.substring(0, 20), 'Applying blur IMMEDIATELY');
+          applyBlurToFilledInput(input);
+          return; // ВАЖНО: выходим сразу, не проверяем дальше!
+        }
+        
+        // Обычная проверка через isCardInputField (только если это НЕ номер карты)
+        if (isCardInputField(input)) {
+          // Проверяем - это вставка или автозаполнение (большое изменение за раз)
+          const valueLength = inputValue.length;
+          if (valueLength > 10) {
+            console.log('🔒 PassBlur: Detected autofill/paste via input (length > 10), applying blur IMMEDIATELY');
+            applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+          }
         }
       }
+      
+      // Также проверяем Stripe контейнеры при вводе
+      setTimeout(() => checkAndBlurStripeElements(), 50);
     }, true);
 
     // Отслеживаем потерю фокуса - Chrome иногда заполняет при blur - МГНОВЕННО!
@@ -457,11 +843,25 @@ console.log('🔒 PassBlur: Content script starting...');
       if (!isEnabled) return;
       const input = e.target;
       
-      if (input.tagName === 'INPUT' && isCardInputField(input) && input.value) {
-        console.log('🔒 PassBlur: Blur event, checking if autofilled, value length:', input.value.length);
-        if (input.value.length > 10) {
-          console.log('🔒 PassBlur: Field has long value on blur, applying blur IMMEDIATELY');
-          applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+      if (input.tagName === 'INPUT' && input.value && !input.classList.contains('passblur-input-processed')) {
+        // Получаем значение через расширенную функцию (для Stripe элементов)
+        const inputValue = getInputValue(input);
+        
+        // ПРЯМАЯ ПРОВЕРКА: если значение похоже на номер карты - размываем сразу!
+        // ЭТО ПЕРВЫЙ ПРИОРИТЕТ - проверяем ДО всех остальных проверок!
+        if (hasCardNumber(inputValue)) {
+          console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER DETECTED DIRECTLY in blur event! Value:', inputValue.substring(0, 20), 'Applying blur IMMEDIATELY');
+          applyBlurToFilledInput(input);
+          return; // ВАЖНО: выходим сразу, не проверяем дальше!
+        }
+        
+        // Обычная проверка через isCardInputField (только если это НЕ номер карты)
+        if (isCardInputField(input)) {
+          console.log('🔒 PassBlur: Blur event, checking if autofilled, value length:', inputValue.length);
+          if (inputValue.length > 10) {
+            console.log('🔒 PassBlur: Field has long value on blur, applying blur IMMEDIATELY');
+            applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+          }
         }
       }
     }, true);
@@ -472,18 +872,40 @@ console.log('🔒 PassBlur: Content script starting...');
         if (mutation.type === 'attributes' && mutation.target.tagName === 'INPUT') {
           const input = mutation.target;
           
-          if (isCardInputField(input) && input.value && input.value.length > 10) {
-            console.log('🔒 PassBlur: Detected value via MutationObserver:', input.name);
-            applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+          if (input.value && input.value.length > 0 && !input.classList.contains('passblur-input-processed')) {
+            // Получаем значение через расширенную функцию (для Stripe элементов)
+            const inputValue = getInputValue(input);
+            
+            // ПРЯМАЯ ПРОВЕРКА: если значение похоже на номер карты - размываем сразу!
+            // ЭТО ПЕРВЫЙ ПРИОРИТЕТ - проверяем ДО всех остальных проверок!
+            if (hasCardNumber(inputValue)) {
+              console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER DETECTED DIRECTLY via MutationObserver! Value:', inputValue.substring(0, 20), 'Applying blur IMMEDIATELY');
+              applyBlurToFilledInput(input);
+              return; // ВАЖНО: выходим сразу, не проверяем дальше!
+            }
+            
+            // Обычная проверка (только если это НЕ номер карты)
+            if (isCardInputField(input) && inputValue.length > 10) {
+              console.log('🔒 PassBlur: Detected value via MutationObserver:', input.name);
+              applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+            }
           }
+        }
+        
+        // Также проверяем изменения в DOM структуре (для Stripe контейнеров)
+        if (mutation.type === 'childList' || mutation.type === 'characterData') {
+          // Проверяем Stripe контейнеры при изменении DOM
+          checkAndBlurStripeElements();
         }
       });
     });
 
-    // Наблюдаем за всеми input полями
+    // Наблюдаем за всеми input полями и изменениями DOM (для Stripe контейнеров)
     autofillObserver.observe(document.body, {
       attributes: true,
       attributeFilter: ['value'],
+      childList: true, // Отслеживаем добавление/удаление элементов
+      characterData: true, // Отслеживаем изменения текстового содержимого
       subtree: true
     });
 
@@ -492,11 +914,24 @@ console.log('🔒 PassBlur: Content script starting...');
       if (!isEnabled) return;
       const input = e.target;
       
-      if (input.tagName === 'INPUT' && isCardInputField(input)) {
-        // Если поле УЖЕ заполнено при фокусе - возможно автозаполнение произошло
-        if (input.value && input.value.length > 10 && !input.classList.contains('passblur-input-processed')) {
-          console.log('🔒 PassBlur: Field already filled on focus - applying blur');
-          applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+      if (input.tagName === 'INPUT' && input.value && !input.classList.contains('passblur-input-processed')) {
+        // Получаем значение через расширенную функцию (для Stripe элементов)
+        const inputValue = getInputValue(input);
+        
+        // ПРЯМАЯ ПРОВЕРКА: если значение похоже на номер карты - размываем сразу!
+        if (hasCardNumber(inputValue)) {
+          console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER DETECTED DIRECTLY on focus! Applying blur IMMEDIATELY');
+          applyBlurToFilledInput(input);
+          return;
+        }
+        
+        // Обычная проверка
+        if (isCardInputField(input)) {
+          // Если поле УЖЕ заполнено при фокусе - возможно автозаполнение произошло
+          if (inputValue.length > 10) {
+            console.log('🔒 PassBlur: Field already filled on focus - applying blur');
+            applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+          }
         }
       }
     }, true);
@@ -506,14 +941,28 @@ console.log('🔒 PassBlur: Content script starting...');
       if (!isEnabled) return;
       const input = e.target;
       
-      if (input.tagName === 'INPUT' && isCardInputField(input)) {
-        // Проверяем через requestAnimationFrame для синхронизации с рендерингом
-        requestAnimationFrame(() => {
-          if (input.value && input.value.length > 10 && !input.classList.contains('passblur-input-processed')) {
-            console.log('🔒 PassBlur: Detected autofill via animationstart - applying blur INSTANTLY');
-            applyBlurToFilledInput(input); // МГНОВЕННО!
-          }
-        });
+      if (input.tagName === 'INPUT' && input.value && !input.classList.contains('passblur-input-processed')) {
+        // Получаем значение через расширенную функцию (для Stripe элементов)
+        const inputValue = getInputValue(input);
+        
+        // ПРЯМАЯ ПРОВЕРКА: если значение похоже на номер карты - размываем сразу!
+        if (hasCardNumber(inputValue)) {
+          console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER DETECTED DIRECTLY via animationstart! Applying blur INSTANTLY');
+          applyBlurToFilledInput(input);
+          return;
+        }
+        
+        // Обычная проверка
+        if (isCardInputField(input)) {
+          // Проверяем через requestAnimationFrame для синхронизации с рендерингом
+          requestAnimationFrame(() => {
+            const currentValue = getInputValue(input);
+            if (currentValue && currentValue.length > 10) {
+              console.log('🔒 PassBlur: Detected autofill via animationstart - applying blur INSTANTLY');
+              applyBlurToFilledInput(input); // МГНОВЕННО!
+            }
+          });
+        }
       }
     }, true);
 
@@ -557,6 +1006,62 @@ console.log('🔒 PassBlur: Content script starting...');
       e.stopPropagation();
       // Alt + hover уже обработан в setupAltKeyToggle
     });
+  }
+
+  // Применить размытие к любому элементу (не только input) с overlay
+  function applyBlurToElement(element) {
+    if (!element || element.classList.contains('passblur-stripe-processed')) {
+      return; // Уже обработано
+    }
+
+    console.log('🔒 PassBlur: Applying blur to element:', element.tagName, element.className);
+
+    // Помечаем как обработанный
+    element.classList.add('passblur-stripe-processed');
+
+    // Сохраняем оригинальные стили
+    const originalStyle = element.getAttribute('style') || '';
+    element.setAttribute('data-passblur-style', originalStyle);
+
+    // Убеждаемся, что элемент имеет position: relative для overlay
+    const computedStyle = window.getComputedStyle(element);
+    if (computedStyle.position === 'static') {
+      element.style.position = 'relative';
+    }
+
+    // Применяем размытие к самому элементу
+    element.style.cssText = originalStyle + `
+      filter: blur(8px) !important;
+      -webkit-filter: blur(8px) !important;
+      position: relative !important;
+    `;
+
+    // Создаем overlay поверх элемента для дополнительной защиты
+    const overlay = document.createElement('div');
+    overlay.className = 'passblur-input-overlay';
+    overlay.style.cssText = `
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      background: rgba(138, 43, 226, 0.15) !important;
+      backdrop-filter: blur(6px) !important;
+      -webkit-backdrop-filter: blur(6px) !important;
+      border-radius: 4px !important;
+      cursor: pointer !important;
+      z-index: 2147483647 !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      pointer-events: all !important;
+      transition: all 0.3s ease !important;
+    `;
+
+    // Добавляем overlay как дочерний элемент
+    element.appendChild(overlay);
+
+    console.log('🔒 PassBlur: Element blurred with overlay!');
   }
 
   // ОТКЛЮЧЕНО - не размываем iframe автоматически
@@ -703,19 +1208,50 @@ console.log('🔒 PassBlur: Content script starting...');
   function isCardInputField(input) {
     if (!input || input.tagName !== 'INPUT') return false;
 
+    // ====== ПРИОРИТЕТ 0: ПРЯМАЯ ПРОВЕРКА НОМЕРА КАРТЫ ПО ЗНАЧЕНИЮ ======
+    // ЭТО САМЫЙ ВЫСОКИЙ ПРИОРИТЕТ - проверяем ПЕРВЫМ!
+    if (input.value && input.value.length > 0) {
+      const digits = input.value.replace(/\D/g, '');
+      // Если это точно номер карты (13-19 цифр) - возвращаем true СРАЗУ
+      if (digits.length >= 13 && digits.length <= 19) {
+        console.log('🔒 PassBlur: [isCardInputField] ✓✓✓ CARD NUMBER DETECTED BY VALUE! Digits:', digits.length, 'Value:', input.value.substring(0, 20) + '...');
+        return true;
+      }
+    }
+
     // ====== ПРИОРИТЕТ 1: ПРОВЕРКА ЗНАЧЕНИЯ (САМОЕ ВАЖНОЕ!) ======
     // Если поле содержит данные карты - размываем ВСЕГДА, независимо от атрибутов!
     if (input.value && input.value.length > 0) {
-      const digits = input.value.replace(/\D/g, '');
-      const trimmedValue = input.value.trim();
+      const value = input.value;
+      // Убираем все нецифровые символы для проверки (включая префиксы типа "VISA")
+      const digits = value.replace(/\D/g, '');
+      const trimmedValue = value.trim();
       
-      // НОМЕР КАРТЫ: 13-19 цифр - ЭТО ВСЕГДА КАРТА!
+      // НОМЕР КАРТЫ: 13-19 цифр - ЭТО ВСЕГДА КАРТА! (ПРИОРИТЕТ!)
+      // Проверяем даже если есть пробелы, дефисы или префиксы типа "VISA", "MASTERCARD" и т.д.
       if (digits.length >= 13 && digits.length <= 19) {
-        console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER DETECTED! Digits:', digits.length, 'Value:', input.value.substring(0, 8) + '...');
+        console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER DETECTED! Digits:', digits.length, 'Value:', value.substring(0, 20) + '...');
         return true;
       }
       
-      // CVV/CVC: 3-4 цифры
+      // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: номер карты может быть частично заполнен
+      // Если есть 12+ цифр и поле имеет карточные атрибуты - это номер карты
+      if (digits.length >= 12) {
+        const name = (input.name || '').toLowerCase();
+        const id = (input.id || '').toLowerCase();
+        const placeholder = (input.placeholder || '').toLowerCase();
+        const autoComplete = (input.autocomplete || input.getAttribute('autocomplete') || '').toLowerCase();
+        const allText = `${name} ${id} ${placeholder} ${autoComplete}`;
+        
+        // Проверяем наличие карточных ключевых слов
+        if (allText.includes('card') || allText.includes('credit') || allText.includes('debit') || 
+            allText.includes('number') || allText.includes('cc-') || allText.includes('номер')) {
+          console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER DETECTED (partial + attributes)! Digits:', digits.length);
+          return true;
+        }
+      }
+      
+      // CVV/CVC: 3-4 цифры (только если поле короткое)
       if (digits.length >= 3 && digits.length <= 4 && trimmedValue.length <= 5) {
         console.log('🔒 PassBlur: ✓✓✓ CVV/CVC DETECTED!');
         return true;
@@ -726,32 +1262,52 @@ console.log('🔒 PassBlur: Content script starting...');
         console.log('🔒 PassBlur: ✓✓✓ EXPIRY DATE DETECTED!');
         return true;
       }
-      
-      // ИМЯ ДЕРЖАТЕЛЯ: 2+ слова (только буквы)
-      if (/^[a-zA-Zа-яА-ЯёЁ]+\s+[a-zA-Zа-яА-ЯёЁ]+/.test(trimmedValue) && trimmedValue.length > 5) {
-        console.log('🔒 PassBlur: ✓✓✓ CARDHOLDER NAME DETECTED!');
-        return true;
-      }
     }
 
     // ====== ПРИОРИТЕТ 2: ПРОВЕРКА АТРИБУТОВ ======
     const name = (input.name || '').toLowerCase();
     const id = (input.id || '').toLowerCase();
     const placeholder = (input.placeholder || '').toLowerCase();
-    const autoComplete = (input.autocomplete || '').toLowerCase();
-    const ariaLabel = (input.getAttribute('aria-label') || '').toLowerCase();
-    const dataStripe = (input.getAttribute('data-stripe') || '').toLowerCase();
-    const className = (input.className || '').toLowerCase();
-    const type = (input.type || '').toLowerCase();
-    const inputMode = (input.inputMode || input.getAttribute('inputmode') || '').toLowerCase();
+    const autoCompleteAttr = input.autocomplete || input.getAttribute('autocomplete');
+    const autoComplete = (autoCompleteAttr || '').toLowerCase();
+    const ariaLabelAttr = input.getAttribute('aria-label');
+    const ariaLabel = (ariaLabelAttr || '').toLowerCase();
+    const dataStripeAttr = input.getAttribute('data-stripe');
+    const dataStripe = (dataStripeAttr || '').toLowerCase();
+    const classNameAttr = input.className;
+    const className = (classNameAttr || '').toLowerCase();
+    const typeAttr = input.type;
+    const type = (typeAttr || '').toLowerCase();
+    const inputModeAttr = input.inputMode || input.getAttribute('inputmode');
+    const inputMode = (inputModeAttr || '').toLowerCase();
 
-    // Проверяем родительские элементы
+    // Проверяем родительские элементы (включая Stripe контейнеры)
     let parentText = '';
     let parent = input.parentElement;
-    for (let i = 0; i < 3 && parent; i++) {
+    for (let i = 0; i < 5 && parent; i++) { // Увеличено до 5 уровней для Stripe
       parentText += ' ' + (parent.className || '').toLowerCase();
       parentText += ' ' + (parent.id || '').toLowerCase();
       parent = parent.parentElement;
+    }
+
+    // СПЕЦИАЛЬНАЯ ПРОВЕРКА: Stripe элементы
+    // Stripe использует классы типа _PrivateStripeElement-input
+    if (className.includes('privatestripeelement') || className.includes('stripe') || 
+        parentText.includes('privatestripeelement') || parentText.includes('stripe')) {
+      // Если это Stripe элемент и содержит номер карты - размываем
+      if (input.value && input.value.length > 0) {
+        const digits = input.value.replace(/\D/g, '');
+        if (digits.length >= 13 && digits.length <= 19) {
+          console.log('🔒 PassBlur: ✓✓✓ STRIPE CARD NUMBER DETECTED! Digits:', digits.length);
+          return true;
+        }
+      }
+      // Также проверяем по атрибутам Stripe
+      if (dataStripe.includes('number') || dataStripe.includes('card') || 
+          autoComplete.includes('cc-') || autoComplete.includes('card')) {
+        console.log('🔒 PassBlur: ✓✓✓ STRIPE CARD FIELD DETECTED (by attributes)!');
+        return true;
+      }
     }
 
     // РАСШИРЕННЫЕ ключевые слова для полей карт
@@ -760,25 +1316,100 @@ console.log('🔒 PassBlur: Content script starting...');
       'cc-number', 'cardnumber', 'card-number', 'card_number',
       'номер', 'cvv', 'cvc', 'cvc2', 'cvv2', 'security', 'code',
       'expir', 'expire', 'exp', 'expiry', 'expiration',
-      'payment', 'billing', 'cardholder', 'namecard'
+      'payment', 'billing'
     ];
 
+    // Ключевые слова специально для имени держателя карты
+    const cardholderNameKeywords = [
+      'cardholder', 'namecard', 'card-name', 'card_name',
+      'holder-name', 'holder_name', 'cardholder-name', 'cardholder_name'
+    ];
+
+    // ВАЖНО: ИСКЛЮЧЕНИЯ - НЕ размываем поля имени, адреса, email, телефона
+    // Эти поля могут находиться в форме оплаты, но не должны размываться
+    const excludeKeywords = [
+      'name', 'fname', 'lname', 'firstname', 'lastname', 'fullname',
+      'address', 'street', 'city', 'state', 'zip', 'postal', 'country', 'region',
+      'email', 'phone', 'tel', 'mobile',
+      'имя', 'фамилия', 'адрес', 'город', 'область', 'индекс', 'телефон'
+    ];
+    
+    // Проверяем, не является ли это исключенным полем
+    const inputAttrs = `${name} ${id} ${placeholder} ${autoComplete} ${ariaLabel}`;
+    const isExcludedField = excludeKeywords.some(keyword => inputAttrs.includes(keyword));
+    
+    if (isExcludedField) {
+      console.log('🔒 PassBlur: Field excluded (name/address/contact):', inputAttrs.substring(0, 50));
+      return false; // НЕ размываем это поле
+    }
+    
     // Проверяем все атрибуты ВКЛЮЧАЯ родителей
     const allText = `${name} ${id} ${placeholder} ${autoComplete} ${ariaLabel} ${dataStripe} ${className} ${parentText}`;
     
-    // Проверяем по ключевым словам
+    // Проверяем по ключевым словам для карт
     if (cardKeywords.some(keyword => allText.includes(keyword))) {
+      // Дополнительная проверка: если это НЕ поле с числовым типом и НЕ содержит данных карты - не размываем
+      if (!input.value || input.value.length === 0) {
+        // Пустое поле - размываем только если это явно поле карты по атрибутам
+        const directCardAttrs = `${name} ${id} ${autoComplete}`;
+        if (!directCardAttrs.includes('card') && !directCardAttrs.includes('cc-') && !directCardAttrs.includes('cvv') && !directCardAttrs.includes('cvc')) {
+          console.log('🔒 PassBlur: Empty field without direct card attributes, skipping');
+          return false;
+        }
+      }
       return true;
     }
+
+    // ИМЯ ДЕРЖАТЕЛЯ: НЕ размываем поля имени - они уже исключены выше
+    // Эта проверка удалена, так как поля имени теперь в списке исключений
 
     // Проверка по типу поля - numeric часто для карт
+    // НО: приоритет отдаем полям с карточными атрибутами или значениями
     if (type === 'tel' || type === 'number' || inputMode === 'numeric' || inputMode === 'decimal') {
+      // Если поле уже содержит цифры - проверяем, это номер карты?
+      if (input.value && input.value.length > 0) {
+        const digits = input.value.replace(/\D/g, '');
+        // Если есть 12+ цифр - это скорее всего номер карты
+        if (digits.length >= 12) {
+          console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER DETECTED (by type + digits)! Digits:', digits.length);
+          return true;
+        }
+      }
+      // Если поле имеет карточные атрибуты - размываем даже без значения
+      if (cardKeywords.some(keyword => allText.includes(keyword))) {
+        return true;
+      }
+      // Иначе не размываем - может быть обычное числовое поле
+      return false;
+    }
+
+    // Проверка autocomplete атрибутов - ПРИОРИТЕТ!
+    // Стандартные autocomplete значения для карт
+    const cardAutocompleteValues = [
+      'cc-number', 'cc-num', 'ccnumber', 'card-number', 'cardnumber',
+      'cc-csc', 'cc-cvc', 'cvv', 'cvc', 'security-code',
+      'cc-exp', 'cc-exp-month', 'cc-exp-year', 'expiry', 'expiration',
+      'cc-name', 'cardholder-name', 'cardholder'
+    ];
+    
+    if (autoComplete && cardAutocompleteValues.some(val => autoComplete.includes(val))) {
+      console.log('🔒 PassBlur: ✓✓✓ CARD FIELD DETECTED (by autocomplete):', autoComplete);
+      return true;
+    }
+    
+    // Также проверяем общие паттерны
+    if (autoComplete.includes('cc-') || autoComplete.includes('card')) {
       return true;
     }
 
-    // Проверка autocomplete атрибутов
-    if (autoComplete.includes('cc-') || autoComplete.includes('card')) {
-      return true;
+    // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: если поле имеет карточные атрибуты И содержит цифры
+    if (cardKeywords.some(keyword => allText.includes(keyword)) && input.value && input.value.length > 0) {
+      const digits = input.value.replace(/\D/g, '');
+      // Если есть 12+ цифр - это номер карты
+      if (digits.length >= 12) {
+        console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER DETECTED (by attributes + digits)! Digits:', digits.length);
+        return true;
+      }
     }
 
     return false;
