@@ -152,6 +152,31 @@
   opacity: 1 !important;
 }
 
+/* КРИТИЧНО: Анимация для обнаружения автозаполнения браузером */
+@keyframes passblur-detect-autofill {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Применяем анимацию к автозаполненным полям - это триггерит animationstart! */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  animation: passblur-detect-autofill 0s forwards;
+  animation-delay: 0s;
+}
+
+/* Также отслеживаем другие браузеры */
+input:autofill {
+  animation: passblur-detect-autofill 0s forwards;
+  animation-delay: 0s;
+}
+
 /* Адаптация для темной темы */
 @media (prefers-color-scheme: dark) {
   .passblur-wrapper {

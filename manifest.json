@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "PassBlur - API Key Protector",
-  "version": "1.6.0",
-  "description": "Автоматически размывает API ключи на веб-страницах для безопасных стримов",
+  "name": "PassBlur - Sensitive Data Protector",
+  "version": "2.0.0",
+  "description": "Автоматически размывает чувствительные данные (API ключи, токены, email, телефоны, карты) для безопасных стримов",
   "permissions": [
     "storage",
     "activeTab"

@@ -4,266 +4,125 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PassBlur</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      width: 320px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 0;
-    }
-
-    .container {
-      padding: 20px;
-    }
-
-    .header {
-      text-align: center;
-      margin-bottom: 20px;
-    }
-
-    .logo {
-      font-size: 48px;
-      margin-bottom: 10px;
-      animation: pulse 2s ease-in-out infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% {
-        transform: scale(1);
-      }
-      50% {
-        transform: scale(1.05);
-      }
-    }
-
-    h1 {
-      font-size: 24px;
-      font-weight: 700;
-      margin-bottom: 5px;
-    }
-
-    .subtitle {
-      font-size: 13px;
-      opacity: 0.9;
-    }
-
-    .status-card {
-      background: rgba(255, 255, 255, 0.15);
-      backdrop-filter: blur(10px);
-      border-radius: 12px;
-      padding: 16px;
-      margin-bottom: 16px;
-      border: 1px solid rgba(255, 255, 255, 0.2);
-    }
-
-    .status-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 12px;
-    }
-
-    .status-row:last-child {
-      margin-bottom: 0;
-    }
-
-    .status-label {
-      font-size: 14px;
-      font-weight: 500;
-      opacity: 0.95;
-    }
-
-    .status-value {
-      font-size: 18px;
-      font-weight: 700;
-    }
-
-    .toggle-container {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      background: rgba(255, 255, 255, 0.15);
-      backdrop-filter: blur(10px);
-      border-radius: 12px;
-      padding: 16px;
-      margin-bottom: 12px;
-      border: 1px solid rgba(255, 255, 255, 0.2);
-    }
-
-    .toggle-label {
-      font-size: 15px;
-      font-weight: 600;
-    }
-
-    /* Toggle Switch */
-    .toggle-switch {
-      position: relative;
-      width: 52px;
-      height: 28px;
-    }
-
-    .toggle-switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-
-    .toggle-slider {
-      position: absolute;
-      cursor: pointer;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: rgba(255, 255, 255, 0.3);
-      transition: 0.3s;
-      border-radius: 28px;
-    }
-
-    .toggle-slider:before {
-      position: absolute;
-      content: "";
-      height: 20px;
-      width: 20px;
-      left: 4px;
-      bottom: 4px;
-      background-color: white;
-      transition: 0.3s;
-      border-radius: 50%;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    }
-
-    input:checked + .toggle-slider {
-      background-color: rgba(76, 175, 80, 0.8);
-    }
-
-    input:checked + .toggle-slider:before {
-      transform: translateX(24px);
-    }
-
-    .button {
-      width: 100%;
-      padding: 14px;
-      background: rgba(255, 255, 255, 0.2);
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      border-radius: 10px;
-      color: white;
-      font-size: 15px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      margin-bottom: 8px;
-    }
-
-    .button:hover {
-      background: rgba(255, 255, 255, 0.3);
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-    }
-
-    .button:active {
-      transform: translateY(0);
-    }
-
-    .button-icon {
-      margin-right: 8px;
-    }
-
-    .footer {
-      text-align: center;
-      margin-top: 16px;
-      padding-top: 16px;
-      border-top: 1px solid rgba(255, 255, 255, 0.2);
-      font-size: 12px;
-      opacity: 0.8;
-    }
-
-    .notification {
-      position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(76, 175, 80, 0.95);
-      color: white;
-      padding: 12px 24px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      z-index: 1000;
-      opacity: 0;
-      transition: opacity 0.3s ease;
-      pointer-events: none;
-    }
-
-    .notification.show {
-      opacity: 1;
-    }
-
-    .spinner {
-      display: inline-block;
-      width: 14px;
-      height: 14px;
-      border: 2px solid rgba(255, 255, 255, 0.3);
-      border-top-color: white;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-
-    @keyframes spin {
-      to {
-        transform: rotate(360deg);
-      }
-    }
-  </style>
+  <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <div class="logo">🔒</div>
-      <h1>PassBlur</h1>
-      <div class="subtitle">API Key Protector</div>
+  <div class="p-6">
+    <!-- Header -->
+    <div class="text-center mb-6">
+      <div class="header-icon">🔒</div>
+      <h1 class="text-2xl font-bold mb-1">PassBlur</h1>
+      <p class="text-sm text-muted-foreground">Sensitive Data Protector</p>
     </div>
 
-    <div class="status-card">
-      <div class="status-row">
-        <span class="status-label">Защищенных ключей:</span>
-        <span class="status-value" id="keysCount">0</span>
+    <!-- Status Card -->
+    <div class="card mb-4">
+      <div class="card-content">
+        <div class="stat-row">
+          <span class="stat-label">Защищенных ключей:</span>
+          <span class="badge badge-default font-semibold" id="keysCount">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Статус:</span>
+          <span class="badge badge-success font-semibold" id="statusText">Активен</span>
+        </div>
       </div>
-      <div class="status-row">
-        <span class="status-label">Статус:</span>
-        <span class="status-value" id="statusText">Активен</span>
+    </div>
+
+    <!-- Protection Toggle Card -->
+    <div class="card mb-4">
+      <div class="card-content">
+        <div class="switch-container">
+          <label for="toggleProtection" class="switch-label">Защита API ключей</label>
+          <label class="switch">
+            <input type="checkbox" id="toggleProtection" checked>
+            <span class="switch-slider"></span>
+          </label>
+        </div>
       </div>
     </div>
 
-    <div class="toggle-container">
-      <span class="toggle-label">Защита API ключей</span>
-      <label class="toggle-switch">
-        <input type="checkbox" id="toggleProtection" checked>
-        <span class="toggle-slider"></span>
-      </label>
+    <!-- Detection Filters Card -->
+    <div class="card mb-4">
+      <div class="card-content">
+        <div class="card-title-small">Detection Filters</div>
+        <div class="filters-grid">
+          <div class="filter-item">
+            <label class="checkbox-wrapper">
+              <div class="checkbox">
+                <input type="checkbox" id="filter-emails" checked>
+                <span class="checkbox-box"></span>
+              </div>
+              <span class="checkbox-label">Emails</span>
+            </label>
+          </div>
+          <div class="filter-item">
+            <label class="checkbox-wrapper">
+              <div class="checkbox">
+                <input type="checkbox" id="filter-phones" checked>
+                <span class="checkbox-box"></span>
+              </div>
+              <span class="checkbox-label">Phone Numbers</span>
+            </label>
+          </div>
+          <div class="filter-item">
+            <label class="checkbox-wrapper">
+              <div class="checkbox">
+                <input type="checkbox" id="filter-creditcards" checked>
+                <span class="checkbox-box"></span>
+              </div>
+              <span class="checkbox-label">Credit Cards</span>
+            </label>
+          </div>
+          <div class="filter-item">
+            <label class="checkbox-wrapper">
+              <div class="checkbox">
+                <input type="checkbox" id="filter-ssn" checked>
+                <span class="checkbox-box"></span>
+              </div>
+              <span class="checkbox-label">SSN</span>
+            </label>
+          </div>
+          <div class="filter-item">
+            <label class="checkbox-wrapper">
+              <div class="checkbox">
+                <input type="checkbox" id="filter-apikeys" checked>
+                <span class="checkbox-box"></span>
+              </div>
+              <span class="checkbox-label">API Keys</span>
+            </label>
+          </div>
+          <div class="filter-item">
+            <label class="checkbox-wrapper">
+              <div class="checkbox">
+                <input type="checkbox" id="filter-tokens" checked>
+                <span class="checkbox-box"></span>
+              </div>
+              <span class="checkbox-label">Auth Tokens</span>
+            </label>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <button class="button" id="rescanBtn">
-      <span class="button-icon">🔄</span>
-      Пересканировать страницу
+    <!-- Rescan Button -->
+    <button class="btn btn-primary btn-md btn-full mb-4" id="rescanBtn">
+      <span>🔄</span>
+      <span>Пересканировать страницу</span>
     </button>
 
-    <div class="footer">
-      v1.6.0 • Создано для безопасных стримов
+    <!-- Footer -->
+    <div class="separator"></div>
+    <div class="text-center text-sm text-muted-foreground" style="line-height: 1.6;">
+      💡 Автоматическая защита чувствительных данных
+      <div style="margin-top: 0.5rem; opacity: 0.7; font-size: 0.75rem;">Зажмите Alt + наведите для просмотра</div>
+      <div style="margin-top: 0.25rem; opacity: 0.7;">v2.0.0 • Создано для безопасных стримов</div>
     </div>
   </div>
 
-  <div class="notification" id="notification"></div>
+  <!-- Toast Notification -->
+  <div class="toast" id="notification"></div>
 
   <script src="popup.js"></script>
 </body>
 </html>
-

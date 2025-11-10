@@ -1,25 +1,73 @@
 // PassBlur - Content Script
-// Автоматическое обнаружение и размытие API ключей
+// Автоматическое обнаружение и размытие чувствительных данных:
+// - API Keys (OpenAI, AWS, GitHub, Stripe, etc.)
+// - Authentication Tokens (JWT, Bearer, OAuth)
+// - Email addresses
+// - Phone numbers
+// - Credit card numbers
+// - Social Security Numbers (SSN)
+
+console.log('🔒 PassBlur: Content script starting...');
 
 (function() {
   'use strict';
+  
+  console.log('🔒 PassBlur: Script initialized!');
 
-  // Regex паттерны для различных типов API ключей
+  // Regex паттерны для различных типов данных
+  const DETECTION_PATTERNS = {
+    // API Keys and Tokens
+    apikeys: {
+      'OpenAI': /\b(sk-proj-[A-Za-z0-9_-]{40,}|sk-[A-Za-z0-9]{32,})\b/g,
+      'AWS': /\b(AKIA[0-9A-Z]{16})\b/g,
+      'Google API': /\b(A[Il]za[0-9A-Za-z_-]{30,})\b/g,
+      'GitHub Token': /\b(gh[ps]_[A-Za-z0-9_]{36,255}|gho_[A-Za-z0-9_]{36,255})\b/g,
+      'Stripe': /\b(sk_live_[0-9a-zA-Z]{24,}|sk_test_[0-9a-zA-Z]{24,}|pk_live_[0-9a-zA-Z]{24,}|pk_test_[0-9a-zA-Z]{24,})\b/g,
+      'Slack': /\b(xox[pbarso]-[0-9A-Za-z-]{10,})\b/g,
+      'Slack Webhook': /https:\/\/hooks\.slack\.com\/services\/[A-Z0-9]+\/[A-Z0-9]+\/[A-Za-z0-9]+/g,
+      'Twilio': /\b(SK[a-f0-9]{32}|AC[a-f0-9]{32})\b/g,
+      'Heroku': /\b([h|H][e|E][r|R][o|O][k|K][u|U].*[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})\b/gi,
+      'Mailgun': /\b(key-[0-9a-zA-Z]{32})\b/g,
+      'Firebase': /\b(A[Il]za[0-9A-Za-z\\-_]{30,})\b/g,
+      'Generic API Key': /\b(api[_-]?key[_-]?[=:]\s*['"]?[A-Za-z0-9_\-]{20,}['"]?)\b/gi
+    },
+    // Authentication Tokens
+    tokens: {
+      'JWT': /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
+      'Bearer Token': /\b(Bearer\s+[A-Za-z0-9\-._~+\/]+=*)\b/gi,
+      'OAuth Token': /\b(oauth[_-]?token[_-]?[=:]\s*['"]?[A-Za-z0-9_\-]{20,}['"]?)\b/gi
+    },
+    // Emails
+    emails: {
+      'Email': /\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/g
+    },
+    // Phone Numbers (более строгие паттерны)
+    phones: {
+      // Российские номера: +7 (XXX) XXX-XX-XX, 8 (XXX) XXX-XX-XX
+      'Phone (RU)': /(?:\+7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}\b/g,
+      // Международные с кодом страны: +XX XXX XXX XXXX (минимум 10 цифр)
+      'Phone (Intl +)': /\+\d{1,3}[\s\-]?\(?\d{2,4}\)?[\s\-]?\d{2,4}[\s\-]?\d{2,4}[\s\-]?\d{0,4}\b/g,
+      // US/Canada: (XXX) XXX-XXXX или XXX-XXX-XXXX
+      'Phone (US)': /\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{4}\b/g
+    },
+    // Credit Cards
+    creditcards: {
+      'Visa': /\b(4[0-9]{3}[-\s]?[0-9]{4}[-\s]?[0-9]{4}[-\s]?[0-9]{4})\b/g,
+      'MasterCard': /\b(5[1-5][0-9]{2}[-\s]?[0-9]{4}[-\s]?[0-9]{4}[-\s]?[0-9]{4})\b/g,
+      'AmEx': /\b(3[47][0-9]{2}[-\s]?[0-9]{6}[-\s]?[0-9]{5})\b/g,
+      'Discover': /\b(6(?:011|5[0-9]{2})[-\s]?[0-9]{4}[-\s]?[0-9]{4}[-\s]?[0-9]{4})\b/g,
+      'Generic Card': /\b([0-9]{4}[-\s]?[0-9]{4}[-\s]?[0-9]{4}[-\s]?[0-9]{4})\b/g
+    },
+    // SSN
+    ssn: {
+      'SSN': /\b([0-9]{3}[-\s]?[0-9]{2}[-\s]?[0-9]{4})\b/g
+    }
+  };
+
+  // Старый API_PATTERNS для обратной совместимости
   const API_PATTERNS = {
-    'OpenAI': /\b(sk-proj-[A-Za-z0-9_-]{40,}|sk-[A-Za-z0-9]{32,})\b/g,
-    'AWS': /\b(AKIA[0-9A-Z]{16})\b/g,
-    'Google API': /\b(A[Il]za[0-9A-Za-z_-]{30,})\b/g,
-    'GitHub Token': /\b(gh[ps]_[A-Za-z0-9_]{36,255}|gho_[A-Za-z0-9_]{36,255})\b/g,
-    'Stripe': /\b(sk_live_[0-9a-zA-Z]{24,}|sk_test_[0-9a-zA-Z]{24,}|pk_live_[0-9a-zA-Z]{24,}|pk_test_[0-9a-zA-Z]{24,})\b/g,
-    'Slack': /\b(xox[pbarso]-[0-9A-Za-z-]{10,})\b/g,
-    'Slack Webhook': /https:\/\/hooks\.slack\.com\/services\/[A-Z0-9]+\/[A-Z0-9]+\/[A-Za-z0-9]+/g,
-    'Twilio': /\b(SK[a-f0-9]{32}|AC[a-f0-9]{32})\b/g,
-    'Heroku': /\b([h|H][e|E][r|R][o|O][k|K][u|U].*[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})\b/gi,
-    'Mailgun': /\b(key-[0-9a-zA-Z]{32})\b/g,
-    'Firebase': /\b(A[Il]za[0-9A-Za-z\\-_]{30,})\b/g,
-    'JWT': /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
-    'Generic API Key': /\b(api[_-]?key[_-]?[=:]\s*['"]?[A-Za-z0-9_\-]{20,}['"]?)\b/gi,
-    'Bearer Token': /\b(Bearer\s+[A-Za-z0-9\-._~+\/]+=*)\b/gi
+    ...DETECTION_PATTERNS.apikeys,
+    ...DETECTION_PATTERNS.tokens
   };
 
   let isEnabled = true;
@@ -29,10 +77,24 @@
   let processedNodes = new WeakSet(); // WeakSet для отслеживания обработанных узлов
   let operationCount = 0; // Счетчик операций
   let lastResetTime = Date.now(); // Время последнего сброса
+  
+  // Фильтры обнаружения
+  let detectionFilters = {
+    emails: true,
+    phones: true,
+    creditcards: true,
+    ssn: true,
+    apikeys: true,
+    tokens: true
+  };
 
   // Проверка настроек при загрузке
-  chrome.storage.sync.get(['isEnabled'], function(result) {
+  chrome.storage.sync.get(['isEnabled', 'detectionFilters'], function(result) {
     isEnabled = result.isEnabled !== false;
+    if (result.detectionFilters) {
+      detectionFilters = { ...detectionFilters, ...result.detectionFilters };
+    }
+    
     if (isEnabled) {
       init();
     }
@@ -48,6 +110,678 @@
     observeDOMChanges();
     setupMessageListener();
     setupClickInterceptor();
+    setupAltKeyToggle();
+    setupAutofillBlur(); // Отслеживаем автозаполнение и размываем
+  }
+
+  // Настройка переключения видимости по Alt + Hover
+  function setupAltKeyToggle() {
+    let altPressed = false;
+
+    // Отслеживаем нажатие Alt
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Alt' && !altPressed) {
+        e.preventDefault(); // Предотвращаем активацию меню браузера
+        e.stopPropagation();
+        altPressed = true;
+      }
+    }, true); // Используем capture phase
+
+    // Отслеживаем отпускание Alt
+    document.addEventListener('keyup', function(e) {
+      if (e.key === 'Alt' && altPressed) {
+        e.preventDefault();
+        e.stopPropagation();
+        altPressed = false;
+        // Скрываем все элементы при отпускании Alt
+        hideAllRevealedContent();
+      }
+    }, true); // Используем capture phase
+
+    // Обрабатываем потерю фокуса окна
+    window.addEventListener('blur', function() {
+      if (altPressed) {
+        altPressed = false;
+        hideAllRevealedContent();
+      }
+    });
+
+    // Обработчики для текстовых элементов (.passblur-wrapper)
+    document.addEventListener('mouseover', function(e) {
+      if (!altPressed || !isEnabled) return;
+
+      const wrapper = e.target.closest('.passblur-wrapper');
+      if (wrapper) {
+        showElementContent(wrapper);
+      }
+    }, true);
+
+    document.addEventListener('mouseout', function(e) {
+      if (!isEnabled) return;
+
+      const wrapper = e.target.closest('.passblur-wrapper');
+      if (wrapper) {
+        hideElementContent(wrapper);
+      }
+    }, true);
+
+    // Обработчики для input полей
+    document.addEventListener('mouseover', function(e) {
+      if (!altPressed || !isEnabled) return;
+
+      if (e.target.classList.contains('passblur-input-processed')) {
+        showInputContent(e.target);
+      }
+    }, true);
+
+    document.addEventListener('mouseout', function(e) {
+      if (!isEnabled) return;
+
+      if (e.target.classList.contains('passblur-input-processed')) {
+        hideInputContent(e.target);
+      }
+    }, true);
+
+    // Обработчики для iframe элементов
+    document.addEventListener('mouseover', function(e) {
+      if (!altPressed || !isEnabled) return;
+
+      const iframe = e.target.closest('.passblur-iframe-processed');
+      
+      if (iframe) {
+        showIframeContent(iframe);
+      }
+    }, true);
+
+    document.addEventListener('mouseout', function(e) {
+      if (!isEnabled) return;
+
+      const iframe = e.target.closest('.passblur-iframe-processed');
+      
+      if (iframe) {
+        hideIframeContent(iframe);
+      }
+    }, true);
+  }
+
+  // Показать содержимое iframe
+  function showIframeContent(iframe) {
+    iframe.style.filter = 'none';
+    iframe.style.webkitFilter = 'none';
+    iframe.setAttribute('data-revealed', 'true');
+
+    // Скрываем индикатор
+    const indicator = iframe.parentElement.querySelector('.passblur-iframe-indicator');
+    if (indicator) {
+      indicator.style.opacity = '0';
+    }
+  }
+
+  // Скрыть содержимое iframe
+  function hideIframeContent(iframe) {
+    if (iframe.getAttribute('data-revealed') !== 'true') return;
+
+    iframe.style.setProperty('filter', 'blur(5px)', 'important');
+    iframe.style.setProperty('-webkit-filter', 'blur(5px)', 'important');
+    iframe.removeAttribute('data-revealed');
+
+    // Показываем индикатор
+    const indicator = iframe.parentElement.querySelector('.passblur-iframe-indicator');
+    if (indicator) {
+      indicator.style.opacity = '0.9';
+    }
+  }
+
+  // Показать содержимое конкретного текстового элемента
+  function showElementContent(wrapper) {
+    const blurredSpan = wrapper.querySelector('.passblur-blurred');
+    if (blurredSpan) {
+      blurredSpan.style.filter = 'none';
+      blurredSpan.style.webkitFilter = 'none';
+      blurredSpan.style.color = 'inherit';
+      blurredSpan.style.textShadow = 'none';
+      wrapper.setAttribute('data-revealed', 'true');
+    }
+  }
+
+  // Скрыть содержимое конкретного текстового элемента
+  function hideElementContent(wrapper) {
+    const blurredSpan = wrapper.querySelector('.passblur-blurred');
+    if (blurredSpan && wrapper.getAttribute('data-revealed') === 'true') {
+      blurredSpan.style.filter = '';
+      blurredSpan.style.webkitFilter = '';
+      blurredSpan.style.color = '';
+      blurredSpan.style.textShadow = '';
+      wrapper.removeAttribute('data-revealed');
+    }
+  }
+
+  // Показать содержимое конкретного input поля
+  function showInputContent(input) {
+    input.setAttribute('data-revealed', 'true');
+
+    // Для полей карт с text-security
+    if (input.classList.contains('passblur-card-tracked')) {
+      input.classList.add('passblur-card-revealed');
+    } else {
+      // Для обычных полей
+      input.style.filter = 'none';
+      input.style.webkitFilter = 'none';
+      input.style.color = 'inherit';
+      input.style.textShadow = 'none';
+      input.style.textSecurity = 'none';
+      input.style.webkitTextSecurity = 'none';
+
+      // Скрываем overlay для этого input
+      const overlay = input.nextElementSibling;
+      if (overlay && overlay.classList.contains('passblur-input-overlay')) {
+        overlay.style.display = 'none';
+      }
+    }
+  }
+
+  // Скрыть содержимое конкретного input поля
+  function hideInputContent(input) {
+    if (input.getAttribute('data-revealed') !== 'true') return;
+
+    input.removeAttribute('data-revealed');
+
+    // Проверяем, является ли это поле карты с text-security
+    if (input.classList.contains('passblur-card-tracked')) {
+      // Убираем класс revealed - CSS вернет точки
+      input.classList.remove('passblur-card-revealed');
+    } else if (input.classList.contains('passblur-input-processed')) {
+      // Для обычных обработанных полей с blur
+      const originalStyle = input.getAttribute('data-passblur-style') || '';
+      input.style.cssText = originalStyle + `
+        filter: blur(6px) !important;
+        -webkit-filter: blur(6px) !important;
+        color: transparent !important;
+        text-shadow: 0 0 8px rgba(138, 43, 226, 0.8) !important;
+      `;
+
+      // Показываем overlay обратно
+      const overlay = input.nextElementSibling;
+      if (overlay && overlay.classList.contains('passblur-input-overlay')) {
+        overlay.style.display = '';
+      }
+    }
+  }
+
+  // Скрыть все раскрытые элементы
+  function hideAllRevealedContent() {
+    // Скрываем все текстовые элементы
+    document.querySelectorAll('.passblur-wrapper[data-revealed="true"]').forEach(wrapper => {
+      hideElementContent(wrapper);
+    });
+
+    // Скрываем все input поля
+    document.querySelectorAll('.passblur-input-processed[data-revealed="true"]').forEach(input => {
+      hideInputContent(input);
+    });
+
+    // Скрываем все iframe элементы
+    document.querySelectorAll('.passblur-iframe-processed[data-revealed="true"]').forEach(iframe => {
+      hideIframeContent(iframe);
+    });
+  }
+
+  // Настройка размытия автозаполненных данных
+  function setupAutofillBlur() {
+    console.log('🔒 PassBlur: setupAutofillBlur called, creditcards filter:', detectionFilters.creditcards);
+    console.log('🔒 PassBlur: isEnabled:', isEnabled);
+    console.log('🔒 PassBlur: All filters:', detectionFilters);
+    
+    // Проверяем фильтр кредитных карт
+    if (!detectionFilters.creditcards) {
+      console.log('🔒 PassBlur: ⚠️ Credit cards filter is DISABLED!');
+      return;
+    }
+
+    console.log('🔒 PassBlur: ✓ Credit cards filter is ENABLED');
+
+    // Храним последние состояния полей для отслеживания изменений
+    const fieldStates = new Map();
+
+    // НЕМЕДЛЕННАЯ проверка всех полей при загрузке
+    console.log('🔒 PassBlur: Performing IMMEDIATE check for pre-filled fields...');
+    const allInputs = document.querySelectorAll('input[type="text"], input:not([type]), input[type="tel"], input[type="number"], input[inputmode="numeric"], input[inputmode="decimal"]');
+    console.log('🔒 PassBlur: Found', allInputs.length, 'input fields on page');
+    
+    allInputs.forEach(input => {
+      if (input.value && input.value.length > 0) {
+        console.log('🔒 PassBlur: Found pre-filled input:', input.name || input.id, 'value length:', input.value.length);
+        if (isCardInputField(input)) {
+          console.log('🔒 PassBlur: ✓✓✓ PRE-FILLED CARD FIELD DETECTED! Applying blur immediately!');
+          applyBlurToFilledInput(input);
+        }
+      }
+      // Инициализируем состояние
+      fieldStates.set(input, input.value || '');
+    });
+
+    // СУПЕР-ЧАСТАЯ проверка в первые 5 секунд (когда автозаполнение наиболее вероятно)
+    let checkCount = 0;
+    const maxFastChecks = 100; // 100 проверок по 20ms = 2 секунды супер-быстрой проверки
+    
+    const superFastInterval = setInterval(() => {
+      if (!isEnabled) return;
+      
+      checkCount++;
+      
+      // РАСШИРЕННЫЙ список типов полей для проверки!
+      const inputs = document.querySelectorAll('input[type="text"], input:not([type]), input[type="tel"], input[type="number"], input[inputmode="numeric"], input[inputmode="decimal"]');
+      
+      inputs.forEach(input => {
+        const currentValue = input.value || '';
+        const previousValue = fieldStates.get(input) || '';
+        
+        // Проверяем ВСЕ поля с значением - не только те, что определены как карточные!
+        if (currentValue !== previousValue && currentValue.length > 0) {
+          // Если поле изменилось - проверяем, это карточное поле?
+          if (isCardInputField(input)) {
+            console.log('🔒 PassBlur: [SUPER-FAST] Card field detected with value, length:', currentValue.length);
+            applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+          }
+        }
+        
+        // Обновляем состояние
+        fieldStates.set(input, currentValue);
+      });
+      
+      // Останавливаем супер-быструю проверку через 2 секунды
+      if (checkCount >= maxFastChecks) {
+        clearInterval(superFastInterval);
+        console.log('🔒 PassBlur: Switching to normal speed checks');
+      }
+    }, 20); // СУПЕР-БЫСТРО: каждые 20ms первые 2 секунды!
+
+    // Периодическая проверка полей на автозаполнение - ОЧЕНЬ ЧАСТАЯ для мгновенного размытия
+    setInterval(() => {
+      if (!isEnabled) return;
+      
+      // РАСШИРЕННЫЙ список типов полей для проверки!
+      const inputs = document.querySelectorAll('input[type="text"], input:not([type]), input[type="tel"], input[type="number"], input[inputmode="numeric"], input[inputmode="decimal"]');
+      
+      inputs.forEach(input => {
+        const currentValue = input.value || '';
+        const previousValue = fieldStates.get(input) || '';
+        
+        // Проверяем ВСЕ поля с изменившимся значением
+        if (currentValue !== previousValue && currentValue.length > 0) {
+          // Проверяем, это карточное поле?
+          if (isCardInputField(input)) {
+            console.log('🔒 PassBlur: Field value changed, length:', currentValue.length, '- applying blur!');
+            applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+          }
+        }
+        
+        // Обновляем состояние
+        fieldStates.set(input, currentValue);
+      });
+    }, 50); // Проверяем каждые 50ms (было 200ms) - в 4 раза чаще!
+
+    // НЕ сканируем сразу! Только при автозаполнении
+    // scanForCardFields(); // ОТКЛЮЧЕНО
+
+    // Отслеживаем автозаполнение через change event - МГНОВЕННО!
+    document.addEventListener('change', function(e) {
+      if (!isEnabled) return;
+      const input = e.target;
+      
+      console.log('🔒 PassBlur: Change event on:', input.tagName, input.name, input.value?.length);
+      
+      if (input.tagName === 'INPUT' && isCardInputField(input) && input.value) {
+        console.log('🔒 PassBlur: Detected card field autofill via change, applying blur IMMEDIATELY');
+        applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+      }
+    }, true);
+
+    // Отслеживаем через input event (вставка из буфера или автозаполнение) - МГНОВЕННО!
+    document.addEventListener('input', function(e) {
+      if (!isEnabled) return;
+      const input = e.target;
+      
+      if (input.tagName === 'INPUT' && isCardInputField(input) && input.value) {
+        // Проверяем - это вставка или автозаполнение (большое изменение за раз)
+        const valueLength = input.value.length;
+        if (valueLength > 10) {
+          console.log('🔒 PassBlur: Detected autofill/paste via input (length > 10), applying blur IMMEDIATELY');
+          applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+        }
+      }
+    }, true);
+
+    // Отслеживаем потерю фокуса - Chrome иногда заполняет при blur - МГНОВЕННО!
+    document.addEventListener('blur', function(e) {
+      if (!isEnabled) return;
+      const input = e.target;
+      
+      if (input.tagName === 'INPUT' && isCardInputField(input) && input.value) {
+        console.log('🔒 PassBlur: Blur event, checking if autofilled, value length:', input.value.length);
+        if (input.value.length > 10) {
+          console.log('🔒 PassBlur: Field has long value on blur, applying blur IMMEDIATELY');
+          applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+        }
+      }
+    }, true);
+
+    // Агрессивное отслеживание через MutationObserver для полей - МГНОВЕННО!
+    const autofillObserver = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'attributes' && mutation.target.tagName === 'INPUT') {
+          const input = mutation.target;
+          
+          if (isCardInputField(input) && input.value && input.value.length > 10) {
+            console.log('🔒 PassBlur: Detected value via MutationObserver:', input.name);
+            applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+          }
+        }
+      });
+    });
+
+    // Наблюдаем за всеми input полями
+    autofillObserver.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['value'],
+      subtree: true
+    });
+
+    // Дополнительная защита: отслеживаем фокус на полях
+    document.addEventListener('focus', function(e) {
+      if (!isEnabled) return;
+      const input = e.target;
+      
+      if (input.tagName === 'INPUT' && isCardInputField(input)) {
+        // Если поле УЖЕ заполнено при фокусе - возможно автозаполнение произошло
+        if (input.value && input.value.length > 10 && !input.classList.contains('passblur-input-processed')) {
+          console.log('🔒 PassBlur: Field already filled on focus - applying blur');
+          applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
+        }
+      }
+    }, true);
+
+    // КРИТИЧНО: Отслеживаем animationstart - браузеры часто генерируют при автозаполнении!
+    document.addEventListener('animationstart', function(e) {
+      if (!isEnabled) return;
+      const input = e.target;
+      
+      if (input.tagName === 'INPUT' && isCardInputField(input)) {
+        // Проверяем через requestAnimationFrame для синхронизации с рендерингом
+        requestAnimationFrame(() => {
+          if (input.value && input.value.length > 10 && !input.classList.contains('passblur-input-processed')) {
+            console.log('🔒 PassBlur: Detected autofill via animationstart - applying blur INSTANTLY');
+            applyBlurToFilledInput(input); // МГНОВЕННО!
+          }
+        });
+      }
+    }, true);
+
+    // НЕ сканируем модальные окна автоматически - только при автозаполнении
+  }
+
+  // Функция больше не используется - размытие только при автозаполнении через события
+
+  // Применить размытие к заполненному полю - МГНОВЕННО И АГРЕССИВНО!
+  function applyBlurToFilledInput(input) {
+    if (input.classList.contains('passblur-input-processed')) {
+      return; // Уже обработано
+    }
+
+    console.log('🔒 PassBlur: Applying IMMEDIATE blur to filled input:', input.name, input.value?.substring(0, 4) + '...');
+
+    // КРИТИЧЕСКИ ВАЖНО: Помечаем СРАЗУ!
+    input.classList.add('passblur-input-processed');
+
+    // Сохраняем оригинальные стили
+    const originalStyle = input.getAttribute('style') || '';
+    input.setAttribute('data-passblur-style', originalStyle);
+
+    // Применяем СИЛЬНОЕ размытие МГНОВЕННО!
+    input.style.cssText = originalStyle + `
+      filter: blur(8px) !important;
+      -webkit-filter: blur(8px) !important;
+      color: transparent !important;
+      text-shadow: 0 0 10px rgba(138, 43, 226, 0.9) !important;
+      cursor: pointer !important;
+      user-select: none !important;
+      -webkit-user-select: none !important;
+      pointer-events: auto !important;
+    `;
+
+    console.log('🔒 PassBlur: STRONG blur applied IMMEDIATELY!');
+
+    // Обработчик клика для показа
+    input.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Alt + hover уже обработан в setupAltKeyToggle
+    });
+  }
+
+  // ОТКЛЮЧЕНО - не размываем iframe автоматически
+  function scanForPaymentIframes() {
+    return; // Функция отключена
+    
+    if (!isEnabled || !detectionFilters.creditcards) return;
+
+    const allIframes = document.querySelectorAll('iframe');
+    
+    allIframes.forEach(iframe => {
+      // Пропускаем уже обработанные
+      if (iframe.classList.contains('passblur-iframe-processed')) {
+        return;
+      }
+
+      // Проверяем атрибуты iframe
+      const src = (iframe.src || '').toLowerCase();
+      const name = (iframe.name || '').toLowerCase();
+      const id = (iframe.id || '').toLowerCase();
+      const title = (iframe.title || '').toLowerCase();
+      const className = (iframe.className || '').toLowerCase();
+
+      // Ключевые слова для платежных iframe
+      const paymentKeywords = [
+        'stripe', 'payment', 'card', 'checkout', 
+        'billing', 'paypal', 'square', 'braintree',
+        'adyen', 'карт', 'оплат', 'js.stripe.com',
+        '__privateStripeFrame', 'cardNumber'
+      ];
+
+      const allText = `${src} ${name} ${id} ${title} ${className}`;
+      
+      if (paymentKeywords.some(keyword => allText.includes(keyword))) {
+        applyBlurToIframe(iframe);
+      }
+    });
+  }
+
+  // Применить размытие к iframe
+  function applyBlurToIframe(iframe) {
+    iframe.classList.add('passblur-iframe-processed');
+
+    // Применяем размытие по умолчанию
+    iframe.style.setProperty('filter', 'blur(6px)', 'important');
+    iframe.style.setProperty('-webkit-filter', 'blur(6px)', 'important');
+    iframe.style.setProperty('transition', 'filter 0.3s ease', 'important');
+
+    // Создаем кнопку-глазик для просмотра
+    const viewBtn = document.createElement('button');
+    viewBtn.className = 'passblur-iframe-view-button';
+    viewBtn.textContent = '👁️';
+    viewBtn.title = 'Удерживайте для просмотра';
+    viewBtn.type = 'button';
+    viewBtn.style.cssText = `
+      position: absolute;
+      top: 50%;
+      right: 12px;
+      transform: translateY(-50%);
+      width: 40px;
+      height: 40px;
+      border: none;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 999999;
+      opacity: 0.95;
+      transition: all 0.2s;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      pointer-events: auto;
+    `;
+
+    // Hover эффект
+    viewBtn.addEventListener('mouseenter', function() {
+      viewBtn.style.opacity = '1';
+      viewBtn.style.transform = 'translateY(-50%) scale(1.08)';
+    });
+
+    viewBtn.addEventListener('mouseleave', function() {
+      viewBtn.style.opacity = '0.95';
+      viewBtn.style.transform = 'translateY(-50%) scale(1)';
+    });
+
+    let isRevealed = false;
+
+    // НАЖАТИЕ кнопки - показать
+    viewBtn.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (!isRevealed) {
+        isRevealed = true;
+        iframe.style.filter = 'none';
+        iframe.style.webkitFilter = 'none';
+        viewBtn.textContent = '🙈';
+        viewBtn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+      }
+    });
+
+    // ОТПУСКАНИЕ кнопки - скрыть обратно
+    viewBtn.addEventListener('mouseup', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (isRevealed) {
+        isRevealed = false;
+        iframe.style.setProperty('filter', 'blur(6px)', 'important');
+        iframe.style.setProperty('-webkit-filter', 'blur(6px)', 'important');
+        viewBtn.textContent = '👁️';
+        viewBtn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+      }
+    });
+
+    // Если курсор ушел с кнопки при нажатии - тоже скрыть
+    viewBtn.addEventListener('mouseleave', function(e) {
+      if (isRevealed) {
+        isRevealed = false;
+        iframe.style.setProperty('filter', 'blur(6px)', 'important');
+        iframe.style.setProperty('-webkit-filter', 'blur(6px)', 'important');
+        viewBtn.textContent = '👁️';
+        viewBtn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+      }
+      viewBtn.style.opacity = '0.95';
+      viewBtn.style.transform = 'translateY(-50%) scale(1)';
+    });
+
+    // Вставляем кнопку
+    if (iframe.parentElement) {
+      const parentStyle = window.getComputedStyle(iframe.parentElement);
+      if (parentStyle.position === 'static') {
+        iframe.parentElement.style.position = 'relative';
+      }
+      
+      iframe.parentElement.appendChild(viewBtn);
+    }
+  }
+
+  // Проверка - является ли поле полем для ввода карты
+  function isCardInputField(input) {
+    if (!input || input.tagName !== 'INPUT') return false;
+
+    // ====== ПРИОРИТЕТ 1: ПРОВЕРКА ЗНАЧЕНИЯ (САМОЕ ВАЖНОЕ!) ======
+    // Если поле содержит данные карты - размываем ВСЕГДА, независимо от атрибутов!
+    if (input.value && input.value.length > 0) {
+      const digits = input.value.replace(/\D/g, '');
+      const trimmedValue = input.value.trim();
+      
+      // НОМЕР КАРТЫ: 13-19 цифр - ЭТО ВСЕГДА КАРТА!
+      if (digits.length >= 13 && digits.length <= 19) {
+        console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER DETECTED! Digits:', digits.length, 'Value:', input.value.substring(0, 8) + '...');
+        return true;
+      }
+      
+      // CVV/CVC: 3-4 цифры
+      if (digits.length >= 3 && digits.length <= 4 && trimmedValue.length <= 5) {
+        console.log('🔒 PassBlur: ✓✓✓ CVV/CVC DETECTED!');
+        return true;
+      }
+      
+      // ДАТА ИСТЕЧЕНИЯ: XX/XX или XX/XXXX
+      if (/^\d{2}\s*\/\s*\d{2,4}$/.test(trimmedValue)) {
+        console.log('🔒 PassBlur: ✓✓✓ EXPIRY DATE DETECTED!');
+        return true;
+      }
+      
+      // ИМЯ ДЕРЖАТЕЛЯ: 2+ слова (только буквы)
+      if (/^[a-zA-Zа-яА-ЯёЁ]+\s+[a-zA-Zа-яА-ЯёЁ]+/.test(trimmedValue) && trimmedValue.length > 5) {
+        console.log('🔒 PassBlur: ✓✓✓ CARDHOLDER NAME DETECTED!');
+        return true;
+      }
+    }
+
+    // ====== ПРИОРИТЕТ 2: ПРОВЕРКА АТРИБУТОВ ======
+    const name = (input.name || '').toLowerCase();
+    const id = (input.id || '').toLowerCase();
+    const placeholder = (input.placeholder || '').toLowerCase();
+    const autoComplete = (input.autocomplete || '').toLowerCase();
+    const ariaLabel = (input.getAttribute('aria-label') || '').toLowerCase();
+    const dataStripe = (input.getAttribute('data-stripe') || '').toLowerCase();
+    const className = (input.className || '').toLowerCase();
+    const type = (input.type || '').toLowerCase();
+    const inputMode = (input.inputMode || input.getAttribute('inputmode') || '').toLowerCase();
+
+    // Проверяем родительские элементы
+    let parentText = '';
+    let parent = input.parentElement;
+    for (let i = 0; i < 3 && parent; i++) {
+      parentText += ' ' + (parent.className || '').toLowerCase();
+      parentText += ' ' + (parent.id || '').toLowerCase();
+      parent = parent.parentElement;
+    }
+
+    // РАСШИРЕННЫЕ ключевые слова для полей карт
+    const cardKeywords = [
+      'card', 'карт', 'credit', 'debit',
+      'cc-number', 'cardnumber', 'card-number', 'card_number',
+      'номер', 'cvv', 'cvc', 'cvc2', 'cvv2', 'security', 'code',
+      'expir', 'expire', 'exp', 'expiry', 'expiration',
+      'payment', 'billing', 'cardholder', 'namecard'
+    ];
+
+    // Проверяем все атрибуты ВКЛЮЧАЯ родителей
+    const allText = `${name} ${id} ${placeholder} ${autoComplete} ${ariaLabel} ${dataStripe} ${className} ${parentText}`;
+    
+    // Проверяем по ключевым словам
+    if (cardKeywords.some(keyword => allText.includes(keyword))) {
+      return true;
+    }
+
+    // Проверка по типу поля - numeric часто для карт
+    if (type === 'tel' || type === 'number' || inputMode === 'numeric' || inputMode === 'decimal') {
+      return true;
+    }
+
+    // Проверка autocomplete атрибутов
+    if (autoComplete.includes('cc-') || autoComplete.includes('card')) {
+      return true;
+    }
+
+    return false;
   }
 
   // Перехват кликов по кнопкам которые могут открывать модалки
@@ -57,7 +791,7 @@
       
       const target = e.target;
       
-      // Проверяем клики по кнопкам/ссылкам которые могут открывать API ключи
+      // Проверяем клики по кнопкам/ссылкам которые могут открывать формы оплаты
       if (target.matches && (
         target.matches('button') || 
         target.matches('[role="button"]') ||
@@ -65,21 +799,48 @@
         target.closest('button') ||
         target.closest('[role="button"]')
       )) {
-        // Запускаем ТОЛЬКО сканирование input полей (не весь scanPage!)
+        console.log('🔒 PassBlur: Button clicked - checking for new payment fields...');
+        
+        // Запускаем агрессивную проверку всех полей - НЕ только input полей!
         setTimeout(() => {
-          if (isEnabled) scanInputFields();
+          if (isEnabled) checkForCardFields();
         }, 10);
         setTimeout(() => {
-          if (isEnabled) scanInputFields();
+          if (isEnabled) checkForCardFields();
         }, 50);
         setTimeout(() => {
-          if (isEnabled) scanInputFields();
+          if (isEnabled) checkForCardFields();
         }, 150);
         setTimeout(() => {
-          if (isEnabled) scanInputFields();
+          if (isEnabled) checkForCardFields();
         }, 300);
+        setTimeout(() => {
+          if (isEnabled) checkForCardFields();
+        }, 500);
       }
     }, true); // Используем capture phase для более раннего срабатывания
+  }
+
+  // Агрессивная проверка всех полей на наличие данных карт
+  function checkForCardFields() {
+    console.log('🔒 PassBlur: Running aggressive card field check...');
+    const allInputs = document.querySelectorAll('input');
+    console.log('🔒 PassBlur: Found', allInputs.length, 'input elements');
+    
+    let foundCount = 0;
+    allInputs.forEach(input => {
+      if (input.value && input.value.length > 0 && !input.classList.contains('passblur-input-processed')) {
+        if (isCardInputField(input)) {
+          console.log('🔒 PassBlur: ✓✓✓ CARD FIELD FOUND - applying blur!');
+          applyBlurToFilledInput(input);
+          foundCount++;
+        }
+      }
+    });
+    
+    if (foundCount > 0) {
+      console.log('🔒 PassBlur: Blurred', foundCount, 'card fields');
+    }
   }
 
   // Основная функция сканирования страницы
@@ -151,35 +912,82 @@
 
       if (!value) return;
 
-      // УМНАЯ ПРОВЕРКА: это действительно API ключ?
-      if (isLikelyApiKey(value)) {
+      // УМНАЯ ПРОВЕРКА: это чувствительные данные?
+      if (isLikelySensitiveData(value)) {
         processInputField(input);
       }
     });
   }
 
-  // Умное определение - является ли строка API ключом
-  function isLikelyApiKey(value) {
-    // Игнорируем короткие строки (названия типа "cursor", "vision")
-    if (value.length < 20) {
+  // Проверка - является ли это телефонным номером (не просто цифрами)
+  function isValidPhoneNumber(text) {
+    // Подсчитываем количество цифр
+    const digits = text.replace(/\D/g, '');
+    
+    // Минимум 10 цифр для телефона
+    if (digits.length < 10) {
+      return false;
+    }
+    
+    // Проверяем наличие форматирования (скобки, тире, пробелы, +)
+    const hasFormatting = /[\(\)\-\s\+]/.test(text);
+    
+    // Если есть + в начале - это телефон
+    if (text.trim().startsWith('+')) {
+      return true;
+    }
+    
+    // Если начинается с 8 или 7 и есть форматирование - российский номер
+    if (/^[87]/.test(digits) && hasFormatting) {
+      return true;
+    }
+    
+    // Если есть скобки (XXX) - скорее всего телефон
+    if (/\(\d{3}\)/.test(text)) {
+      return true;
+    }
+    
+    // Если много цифр подряд без форматирования - вероятно НЕ телефон
+    if (digits.length > 10 && !hasFormatting) {
+      return false;
+    }
+    
+    return hasFormatting && digits.length >= 10;
+  }
+
+  // Умное определение - содержит ли строка чувствительные данные
+  function isLikelySensitiveData(value) {
+    // Минимальная длина проверки
+    if (value.length < 5) {
       return false;
     }
 
-    // Игнорируем обычные слова и предложения
-    if (/^[a-zA-Z\s\-_]+$/.test(value) && value.length < 30) {
-      return false;
-    }
+    // Получаем активные паттерны на основе фильтров
+    const activePatterns = getActivePatterns();
 
-    // Проверяем на конкретные паттерны ключей
-    for (const [keyType, pattern] of Object.entries(API_PATTERNS)) {
+    // Проверяем на конкретные паттерны
+    for (const [keyType, pattern] of Object.entries(activePatterns)) {
       // Сбрасываем lastIndex для глобальных regex
       pattern.lastIndex = 0;
       
       if (pattern.test(value)) {
-        // Дополнительная проверка длины для найденного совпадения
         const matches = value.match(pattern);
-        if (matches && matches[0] && matches[0].length >= 20) {
-          return true;
+        if (matches && matches[0]) {
+          const matchedText = matches[0];
+          
+          // Дополнительная проверка для телефонов
+          if (keyType.includes('Phone')) {
+            if (!isValidPhoneNumber(matchedText)) {
+              continue; // Пропускаем, если это не телефон
+            }
+          }
+          
+          // Разные минимальные длины для разных типов
+          const minLength = (keyType.includes('Email') || keyType.includes('Phone') || keyType.includes('SSN') || keyType.includes('Card')) ? 5 : 20;
+          
+          if (matchedText.length >= minLength) {
+            return true;
+          }
         }
       }
     }
@@ -215,16 +1023,17 @@
     // Получаем значение и определяем тип ключа
     const value = input.value || input.textContent || '';
     
-    // Еще одна проверка - это действительно ключ?
-    if (!isLikelyApiKey(value)) {
+    // Еще одна проверка - это действительно чувствительные данные?
+    if (!isLikelySensitiveData(value)) {
       input.classList.remove('passblur-input-processed'); // Снимаем метку
       processingElements.delete(input); // Удаляем из Set
       return;
     }
     
     let keyType = 'Unknown';
+    const activePatterns = getActivePatterns();
     
-    for (const [type, pattern] of Object.entries(API_PATTERNS)) {
+    for (const [type, pattern] of Object.entries(activePatterns)) {
       pattern.lastIndex = 0;
       if (pattern.test(value)) {
         keyType = type;
@@ -249,8 +1058,8 @@
         }
         
         const innerValue = innerEl.value || innerEl.textContent || '';
-        if (innerValue.length >= 20 && isLikelyApiKey(innerValue)) {
-          // Нашли реальный элемент с ключом
+        if (innerValue.length >= 5 && isLikelySensitiveData(innerValue)) {
+          // Нашли реальный элемент с чувствительными данными
           found = true;
           processInputField(innerEl);
           break; // Обработали один, хватит
@@ -377,6 +1186,19 @@
     processingElements.delete(input);
   }
 
+  // Получение активных паттернов на основе фильтров
+  function getActivePatterns() {
+    let activePatterns = {};
+    
+    Object.keys(detectionFilters).forEach(filterKey => {
+      if (detectionFilters[filterKey] && DETECTION_PATTERNS[filterKey]) {
+        activePatterns = { ...activePatterns, ...DETECTION_PATTERNS[filterKey] };
+      }
+    });
+    
+    return activePatterns;
+  }
+
   // Обработка текстового узла
   function processTextNode(textNode) {
     if (!isEnabled) return;
@@ -416,15 +1238,27 @@
     const text = textNode.textContent;
     let foundKeys = [];
 
-    // Проверяем текст на все паттерны
-    for (const [keyType, pattern] of Object.entries(API_PATTERNS)) {
+    // Получаем активные паттерны на основе фильтров
+    const activePatterns = getActivePatterns();
+
+    // Проверяем текст на все активные паттерны
+    for (const [keyType, pattern] of Object.entries(activePatterns)) {
       pattern.lastIndex = 0; // Сброс для глобальных regex
       const matches = [...text.matchAll(pattern)];
       matches.forEach(match => {
         const matchedText = match[0];
         
-        // УМНАЯ ПРОВЕРКА: игнорируем короткие совпадения (названия)
-        if (matchedText.length >= 20) {
+        // Дополнительная проверка для телефонов
+        if (keyType.includes('Phone')) {
+          if (!isValidPhoneNumber(matchedText)) {
+            return; // Пропускаем, если это не телефон
+          }
+        }
+        
+        // Проверка минимальной длины в зависимости от типа
+        const minLength = (keyType.includes('Email') || keyType.includes('Phone') || keyType.includes('SSN')) ? 5 : 20;
+        
+        if (matchedText.length >= minLength) {
           foundKeys.push({
             type: keyType,
             value: matchedText,
@@ -676,7 +1510,7 @@
     if (!value) return;
 
     // УМНАЯ проверка
-    if (isLikelyApiKey(value)) {
+    if (isLikelySensitiveData(value)) {
       try {
         processInputField(input);
       } catch (e) {
@@ -701,18 +1535,43 @@
         }
         sendResponse({ success: true });
       } else if (request.action === 'rescan') {
+        console.log('🔒 PassBlur: Manual rescan triggered from popup');
         removeAllBlurs();
         scanPage();
+        checkForCardFields(); // Также проверяем карточные поля!
         sendResponse({ success: true, count: blurredElements.size });
       } else if (request.action === 'getStatus') {
         sendResponse({ 
           enabled: isEnabled, 
           count: blurredElements.size 
         });
+      } else if (request.action === 'updateFilters') {
+        // Обновляем фильтры
+        if (request.filters) {
+          detectionFilters = { ...detectionFilters, ...request.filters };
+          
+          // Пересканируем страницу с новыми фильтрами
+          removeAllBlurs();
+          if (isEnabled) {
+            scanPage();
+            checkForCardFields(); // Также проверяем карточные поля!
+          }
+          
+          sendResponse({ success: true, count: blurredElements.size });
+        } else {
+          sendResponse({ success: false, error: 'No filters provided' });
+        }
       }
       return true;
     });
   }
+
+  // ГЛОБАЛЬНАЯ функция для ручного запуска из консоли
+  window.PassBlurManualCheck = function() {
+    console.log('🔒 PassBlur: ===== MANUAL CHECK STARTED =====');
+    checkForCardFields();
+    console.log('🔒 PassBlur: ===== MANUAL CHECK COMPLETED =====');
+  };
 
   // Удалить все размытия
   function removeAllBlurs() {
