@@ -918,11 +918,28 @@ console.log('🔒 PassBlur: Content script starting...');
       }
     }, true);
 
-    // ОТКЛЮЧЕНО: НЕ размываем Stripe iframe автоматически
-    // Stripe iframe размывается СРАЗУ при открытии формы, что неправильно
-    // Нужно размывать только ПОСЛЕ ввода данных, но мы не можем получить доступ внутрь iframe
-    // Поэтому полагаемся только на размытие обычных input полей
-    console.log('🔒 PassBlur: Stripe iframe auto-blur DISABLED - will blur only filled input fields');
+    // ВАЖНО: Размываем Stripe iframe когда пользователь начинает взаимодействовать с формой
+    console.log('🔒 PassBlur: Setting up Stripe iframe blur on interaction...');
+    
+    // Отслеживаем клики и фокус на форме оплаты
+    document.addEventListener('click', function(e) {
+      const target = e.target;
+      // Проверяем - это клик внутри формы оплаты?
+      const paymentForm = target.closest('[role="dialog"], .modal, form, [class*="payment"], [class*="billing"]');
+      
+      if (paymentForm) {
+        console.log('🔒 PassBlur: Payment form interaction detected - scanning for Stripe iframes...');
+        // Небольшая задержка чтобы iframe успел загрузиться
+        setTimeout(() => scanForPaymentIframes(), 200);
+        setTimeout(() => scanForPaymentIframes(), 1000);
+      }
+    });
+    
+    // Также сканируем при загрузке с задержкой (на случай если iframe уже заполнен)
+    setTimeout(() => {
+      console.log('🔒 PassBlur: Delayed Stripe iframe scan...');
+      scanForPaymentIframes();
+    }, 2000);
   }
 
   // Функция больше не используется - размытие только при автозаполнении через события
