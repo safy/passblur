@@ -1114,10 +1114,9 @@ console.log('🔒 PassBlur: Content script starting...');
       const allText = `${src} ${name} ${id} ${title} ${className}`;
       
       if (paymentKeywords.some(keyword => allText.includes(keyword))) {
-        // ВАЖНО: Проверяем родительский контейнер - заполнено ли поле?
+        // ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ для отладки
         const parent = iframe.parentElement;
         
-        // ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ для отладки
         console.log('🔒 PassBlur: [scanForPaymentIframes] ✓ Stripe iframe FOUND!', {
           src: src.substring(0, 60),
           name: name.substring(0, 40),
@@ -1126,35 +1125,46 @@ console.log('🔒 PassBlur: Content script starting...');
           parentId: parent?.id
         });
         
-        // Проверяем все возможные варианты классов
-        const hasCompleteClass = parent && parent.classList.contains('StripeElement--complete');
-        const hasFilledClass = parent && parent.classList.contains('StripeElement--filled');
-        const hasInvalidClass = parent && parent.classList.contains('StripeElement--invalid');
-        const hasEmptyClass = parent && parent.classList.contains('StripeElement--empty');
-        const hasFocusClass = parent && parent.classList.contains('StripeElement--focus');
+        // СПЕЦИАЛЬНАЯ ПРОВЕРКА: Если это iframe с номером карты (по src или name)
+        const isCardNumberIframe = 
+          src.includes('elements-inner-card') || 
+          name.includes('cardnumber') || 
+          src.includes('cardnumber') ||
+          title.includes('cardnumber');
         
-        console.log('🔒 PassBlur: [scanForPaymentIframes] Parent classes:', {
-          complete: hasCompleteClass,
-          filled: hasFilledClass,
-          invalid: hasInvalidClass,
-          empty: hasEmptyClass,
-          focus: hasFocusClass,
-          allClasses: parent?.className
-        });
-        
-        const isComplete = hasCompleteClass || hasFilledClass || 
-          (parent && parent.querySelector('.StripeElement--complete')) ||
-          (parent && parent.querySelector('.StripeElement--filled'));
-        
-        console.log('🔒 PassBlur: [scanForPaymentIframes] Field complete status:', isComplete);
-        
-        // Размываем ТОЛЬКО если поле заполнено!
-        if (isComplete) {
-          console.log('🔒 PassBlur: ✓✓✓ STRIPE FIELD IS COMPLETE! Applying blur...');
-        applyBlurToIframe(iframe);
-          foundCount++;
+        if (isCardNumberIframe) {
+          console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER IFRAME DETECTED BY NAME!');
+          // Проверяем несколько уровней родителей для класса --complete
+          let checkParent = parent;
+          let isComplete = false;
+          
+          for (let i = 0; i < 5 && checkParent; i++) {
+            const parentClasses = checkParent.className || '';
+            console.log('🔒 PassBlur: Checking parent level', i, 'classes:', parentClasses);
+            
+            if (parentClasses.includes('StripeElement--complete') || 
+                parentClasses.includes('StripeElement--filled') ||
+                parentClasses.includes('--complete') ||
+                parentClasses.includes('--filled')) {
+              isComplete = true;
+              console.log('🔒 PassBlur: ✓ COMPLETE class found at level', i);
+              break;
+            }
+            checkParent = checkParent.parentElement;
+          }
+          
+          console.log('🔒 PassBlur: Field complete status:', isComplete);
+          
+          // Размываем ТОЛЬКО если поле заполнено!
+          if (isComplete) {
+            console.log('🔒 PassBlur: ✓✓✓ STRIPE CARD FIELD IS COMPLETE! Applying blur...');
+            applyBlurToIframe(iframe);
+            foundCount++;
+          } else {
+            console.log('🔒 PassBlur: ⚠️ Stripe card field NOT complete yet');
+          }
         } else {
-          console.log('🔒 PassBlur: ⚠️ Stripe field NOT complete yet (waiting for --complete class)');
+          console.log('🔒 PassBlur: Stripe iframe detected but not card number field, skipping');
         }
       }
     });
