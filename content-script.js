@@ -1114,57 +1114,68 @@ console.log('🔒 PassBlur: Content script starting...');
       const allText = `${src} ${name} ${id} ${title} ${className}`;
       
       if (paymentKeywords.some(keyword => allText.includes(keyword))) {
-        // ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ для отладки
         const parent = iframe.parentElement;
         
-        console.log('🔒 PassBlur: [scanForPaymentIframes] ✓ Stripe iframe FOUND!', {
-          src: src.substring(0, 60),
-          name: name.substring(0, 40),
-          parentTagName: parent?.tagName,
-          parentClassName: parent?.className,
-          parentId: parent?.id
+        // УНИВЕРСАЛЬНОЕ РЕШЕНИЕ: Определяем это iframe с номером карты?
+        const isCardNumberIframe = 
+          src.includes('elements-inner-card') ||  // Stripe
+          src.includes('cardnumber') ||           // Generic
+          name.includes('cardnumber') ||
+          name.includes('card-number') ||
+          title.includes('card') ||
+          title.includes('cardnumber') ||
+          src.includes('payment') && src.includes('card');
+        
+        console.log('🔒 PassBlur: [scanForPaymentIframes] Payment iframe found:', {
+          isCardIframe: isCardNumberIframe,
+          src: src.substring(0, 50),
+          name: name.substring(0, 30)
         });
         
-        // СПЕЦИАЛЬНАЯ ПРОВЕРКА: Если это iframe с номером карты (по src или name)
-        const isCardNumberIframe = 
-          src.includes('elements-inner-card') || 
-          name.includes('cardnumber') || 
-          src.includes('cardnumber') ||
-          title.includes('cardnumber');
-        
         if (isCardNumberIframe) {
-          console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER IFRAME DETECTED BY NAME!');
-          // Проверяем несколько уровней родителей для класса --complete
-          let checkParent = parent;
-          let isComplete = false;
+          // Пропускаем если уже обработан
+          if (iframe.hasAttribute('data-passblur-monitored')) {
+            return;
+          }
           
-          for (let i = 0; i < 5 && checkParent; i++) {
-            const parentClasses = checkParent.className || '';
-            console.log('🔒 PassBlur: Checking parent level', i, 'classes:', parentClasses);
-            
-            if (parentClasses.includes('StripeElement--complete') || 
-                parentClasses.includes('StripeElement--filled') ||
-                parentClasses.includes('--complete') ||
-                parentClasses.includes('--filled')) {
-              isComplete = true;
-              console.log('🔒 PassBlur: ✓ COMPLETE class found at level', i);
-              break;
+          console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER IFRAME DETECTED! Setting up blur on interaction...');
+          
+          // Помечаем как отслеживаемый
+          iframe.setAttribute('data-passblur-monitored', 'true');
+          
+          // СТРАТЕГИЯ: Размываем через 3 секунды после первого взаимодействия
+          let interactionDetected = false;
+          let blurTimer = null;
+          
+          // Отслеживаем клики ОКОЛО iframe (так как клик внутри iframe мы не поймаем)
+          const parentContainer = iframe.closest('[role="dialog"], .modal, form, div');
+          if (parentContainer) {
+            parentContainer.addEventListener('click', function(e) {
+              if (!interactionDetected) {
+                interactionDetected = true;
+                console.log('🔒 PassBlur: Payment form clicked - will blur iframe in 3 seconds...');
+                
+                // Очищаем предыдущий таймер если есть
+                if (blurTimer) clearTimeout(blurTimer);
+                
+                // Размываем через 3 секунды (пользователь успеет ввести данные)
+                blurTimer = setTimeout(() => {
+                  console.log('🔒 PassBlur: ✓✓✓ TIME ELAPSED - Blurring card iframe NOW!');
+                  applyBlurToIframe(iframe);
+                  foundCount++;
+                }, 3000); // 3 секунды на ввод
+              }
+            }, { once: false }); // Можно кликать много раз
+          }
+          
+          // ТАКЖЕ размываем при потере фокуса с iframe
+          iframe.addEventListener('blur', function() {
+            console.log('🔒 PassBlur: Card iframe lost focus - blurring!');
+            if (!iframe.classList.contains('passblur-iframe-processed')) {
+              applyBlurToIframe(iframe);
+              foundCount++;
             }
-            checkParent = checkParent.parentElement;
-          }
-          
-          console.log('🔒 PassBlur: Field complete status:', isComplete);
-          
-          // Размываем ТОЛЬКО если поле заполнено!
-          if (isComplete) {
-            console.log('🔒 PassBlur: ✓✓✓ STRIPE CARD FIELD IS COMPLETE! Applying blur...');
-            applyBlurToIframe(iframe);
-            foundCount++;
-          } else {
-            console.log('🔒 PassBlur: ⚠️ Stripe card field NOT complete yet');
-          }
-        } else {
-          console.log('🔒 PassBlur: Stripe iframe detected but not card number field, skipping');
+          });
         }
       }
     });
