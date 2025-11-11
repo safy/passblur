@@ -102,6 +102,10 @@ console.log('🔒 PassBlur: Content script starting...');
 
   // Инициализация
   function init() {
+    console.log('🔒 PassBlur: ===== INITIALIZATION STARTED =====');
+    console.log('🔒 PassBlur: isEnabled:', isEnabled);
+    console.log('🔒 PassBlur: detectionFilters:', detectionFilters);
+    
     // Сканируем сразу ОДИН раз
     scanPage();
     // Больше НЕ делаем автоматические повторные сканирования - они создают цикл
@@ -112,6 +116,8 @@ console.log('🔒 PassBlur: Content script starting...');
     setupClickInterceptor();
     setupAltKeyToggle();
     setupAutofillBlur(); // Отслеживаем автозаполнение и размываем
+    
+    console.log('🔒 PassBlur: ===== INITIALIZATION COMPLETED =====');
   }
 
   // Настройка переключения видимости по Alt + Hover
@@ -1003,7 +1009,37 @@ console.log('🔒 PassBlur: Content script starting...');
       return; // Уже обработано
     }
 
-    console.log('🔒 PassBlur: Applying IMMEDIATE blur to filled input:', input.name, input.value?.substring(0, 4) + '...');
+    // ЛОГИРУЕМ ДЕТАЛИ ПОЛЯ
+    console.log('🔒 PassBlur: [applyBlurToFilledInput] Attempting to blur field:', {
+      name: input.name,
+      id: input.id,
+      placeholder: input.placeholder,
+      autocomplete: input.autocomplete,
+      value: input.value?.substring(0, 10) + '...',
+      valueLength: input.value?.length
+    });
+
+    // ПРОВЕРКА ИСКЛЮЧЕНИЙ: НЕ размываем имя, адрес и т.д.!
+    const name = (input.name || '').toLowerCase();
+    const id = (input.id || '').toLowerCase();
+    const placeholder = (input.placeholder || '').toLowerCase();
+    const autocomplete = (input.autocomplete || '').toLowerCase();
+    
+    const excludeKeywords = [
+      'name', 'имя', 'fname', 'lname', 'firstname', 'lastname', 'cardholder', 'fullname',
+      'address', 'адрес', 'street', 'улиц', 'line', 'line1', 'line2',
+      'city', 'город', 'state', 'регион', 'область', 'province', 'region',
+      'country', 'страна', 'county',
+      'zip', 'postal', 'почт', 'индекс', 'postcode',
+      'email', 'mail', 'phone', 'tel', 'mobile', 'телефон'
+    ];
+    
+    const allText = `${name} ${id} ${placeholder} ${autocomplete}`;
+    
+    if (excludeKeywords.some(keyword => allText.includes(keyword))) {
+      console.log('🔒 PassBlur: [applyBlurToFilledInput] ⚠️ SKIPPING excluded field (name/address):', allText.substring(0, 50));
+      return; // НЕ размываем!
+    }
 
     // КРИТИЧЕСКИ ВАЖНО: Помечаем СРАЗУ!
     input.classList.add('passblur-input-processed');
@@ -2264,6 +2300,20 @@ console.log('🔒 PassBlur: Content script starting...');
     console.log('🔒 PassBlur: ===== MANUAL CHECK STARTED =====');
     checkForCardFields();
     console.log('🔒 PassBlur: ===== MANUAL CHECK COMPLETED =====');
+  };
+
+  // ГЛОБАЛЬНАЯ функция для сканирования Stripe iframe
+  window.PassBlurScanStripe = function() {
+    console.log('🔒 PassBlur: ===== STRIPE IFRAME SCAN STARTED =====');
+    scanForPaymentIframes();
+    console.log('🔒 PassBlur: ===== STRIPE IFRAME SCAN COMPLETED =====');
+  };
+
+  // ГЛОБАЛЬНАЯ функция для удаления всех размытий
+  window.PassBlurClearAll = function() {
+    console.log('🔒 PassBlur: ===== CLEARING ALL BLURS =====');
+    removeAllBlurs();
+    console.log('🔒 PassBlur: ===== ALL BLURS CLEARED =====');
   };
 
   // Удалить все размытия
