@@ -1116,22 +1116,45 @@ console.log('🔒 PassBlur: Content script starting...');
       if (paymentKeywords.some(keyword => allText.includes(keyword))) {
         // ВАЖНО: Проверяем родительский контейнер - заполнено ли поле?
         const parent = iframe.parentElement;
-        const isComplete = parent && (
-          parent.classList.contains('StripeElement--complete') ||
-          parent.classList.contains('StripeElement--filled') ||
-          parent.querySelector('.StripeElement--complete') ||
-          parent.querySelector('.StripeElement--filled')
-        );
         
-        console.log('🔒 PassBlur: [scanForPaymentIframes] Stripe iframe found, parent complete:', isComplete);
+        // ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ для отладки
+        console.log('🔒 PassBlur: [scanForPaymentIframes] ✓ Stripe iframe FOUND!', {
+          src: src.substring(0, 60),
+          name: name.substring(0, 40),
+          parentTagName: parent?.tagName,
+          parentClassName: parent?.className,
+          parentId: parent?.id
+        });
+        
+        // Проверяем все возможные варианты классов
+        const hasCompleteClass = parent && parent.classList.contains('StripeElement--complete');
+        const hasFilledClass = parent && parent.classList.contains('StripeElement--filled');
+        const hasInvalidClass = parent && parent.classList.contains('StripeElement--invalid');
+        const hasEmptyClass = parent && parent.classList.contains('StripeElement--empty');
+        const hasFocusClass = parent && parent.classList.contains('StripeElement--focus');
+        
+        console.log('🔒 PassBlur: [scanForPaymentIframes] Parent classes:', {
+          complete: hasCompleteClass,
+          filled: hasFilledClass,
+          invalid: hasInvalidClass,
+          empty: hasEmptyClass,
+          focus: hasFocusClass,
+          allClasses: parent?.className
+        });
+        
+        const isComplete = hasCompleteClass || hasFilledClass || 
+          (parent && parent.querySelector('.StripeElement--complete')) ||
+          (parent && parent.querySelector('.StripeElement--filled'));
+        
+        console.log('🔒 PassBlur: [scanForPaymentIframes] Field complete status:', isComplete);
         
         // Размываем ТОЛЬКО если поле заполнено!
         if (isComplete) {
           console.log('🔒 PassBlur: ✓✓✓ STRIPE FIELD IS COMPLETE! Applying blur...');
-          applyBlurToIframe(iframe);
+        applyBlurToIframe(iframe);
           foundCount++;
         } else {
-          console.log('🔒 PassBlur: Stripe field not complete yet, skipping blur');
+          console.log('🔒 PassBlur: ⚠️ Stripe field NOT complete yet (waiting for --complete class)');
         }
       }
     });
