@@ -918,26 +918,40 @@ console.log('🔒 PassBlur: Content script starting...');
       }
     }, true);
 
-    // ВАЖНО: Размываем Stripe iframe когда пользователь начинает взаимодействовать с формой
-    console.log('🔒 PassBlur: Setting up Stripe iframe blur on interaction...');
+    // ВАЖНО: Размываем Stripe iframe когда поле заполнено (класс .StripeElement--complete)
+    console.log('🔒 PassBlur: Setting up Stripe iframe blur monitoring...');
     
     // Отслеживаем клики и фокус на форме оплаты
     document.addEventListener('click', function(e) {
       const target = e.target;
       // Проверяем - это клик внутри формы оплаты?
-      const paymentForm = target.closest('[role="dialog"], .modal, form, [class*="payment"], [class*="billing"]');
+      const paymentForm = target.closest('[role="dialog"], .modal, form, [class*="payment"], [class*="billing"], .StripeElement');
       
       if (paymentForm) {
-        console.log('🔒 PassBlur: Payment form interaction detected - scanning for Stripe iframes...');
-        // Небольшая задержка чтобы iframe успел загрузиться
-        setTimeout(() => scanForPaymentIframes(), 200);
-        setTimeout(() => scanForPaymentIframes(), 1000);
+        console.log('🔒 PassBlur: Payment form interaction detected - starting Stripe monitoring...');
+        // Агрессивное сканирование пока поле не заполнится
+        let scanCount = 0;
+        const scanInterval = setInterval(() => {
+          scanForPaymentIframes();
+          scanCount++;
+          
+          // Проверяем 20 раз (20 * 300ms = 6 секунд)
+          if (scanCount >= 20) {
+            clearInterval(scanInterval);
+            console.log('🔒 PassBlur: Stripe monitoring completed');
+          }
+        }, 300); // Каждые 300ms
       }
     });
     
     // Также сканируем при загрузке с задержкой (на случай если iframe уже заполнен)
     setTimeout(() => {
-      console.log('🔒 PassBlur: Delayed Stripe iframe scan...');
+      console.log('🔒 PassBlur: Initial Stripe iframe scan...');
+      scanForPaymentIframes();
+    }, 2000);
+    
+    // Периодическое сканирование каждые 2 секунды (на случай отложенного автозаполнения)
+    setInterval(() => {
       scanForPaymentIframes();
     }, 2000);
   }
@@ -1068,6 +1082,7 @@ console.log('🔒 PassBlur: Content script starting...');
   }
 
   // Сканирование и размытие iframe от Stripe/платёжных систем
+  // НО: Размываем ТОЛЬКО если родительский контейнер имеет класс .StripeElement--complete (поле заполнено!)
   function scanForPaymentIframes() {
     if (!isEnabled || !detectionFilters.creditcards) return;
 
@@ -1098,16 +1113,26 @@ console.log('🔒 PassBlur: Content script starting...');
 
       const allText = `${src} ${name} ${id} ${title} ${className}`;
       
-      console.log('🔒 PassBlur: [scanForPaymentIframes] Checking iframe:', {
-        src: src.substring(0, 50),
-        name: name.substring(0, 30),
-        id, title, className: className.substring(0, 30)
-      });
-      
       if (paymentKeywords.some(keyword => allText.includes(keyword))) {
-        console.log('🔒 PassBlur: ✓✓✓ PAYMENT IFRAME DETECTED! Applying blur...');
-        applyBlurToIframe(iframe);
-        foundCount++;
+        // ВАЖНО: Проверяем родительский контейнер - заполнено ли поле?
+        const parent = iframe.parentElement;
+        const isComplete = parent && (
+          parent.classList.contains('StripeElement--complete') ||
+          parent.classList.contains('StripeElement--filled') ||
+          parent.querySelector('.StripeElement--complete') ||
+          parent.querySelector('.StripeElement--filled')
+        );
+        
+        console.log('🔒 PassBlur: [scanForPaymentIframes] Stripe iframe found, parent complete:', isComplete);
+        
+        // Размываем ТОЛЬКО если поле заполнено!
+        if (isComplete) {
+          console.log('🔒 PassBlur: ✓✓✓ STRIPE FIELD IS COMPLETE! Applying blur...');
+          applyBlurToIframe(iframe);
+          foundCount++;
+        } else {
+          console.log('🔒 PassBlur: Stripe field not complete yet, skipping blur');
+        }
       }
     });
     
