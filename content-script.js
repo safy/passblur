@@ -459,7 +459,7 @@ console.log('🔒 PassBlur: Content script starting...');
             
             console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER FOUND IN ELEMENT! Tag:', el.tagName, 'Text:', text.substring(0, 30));
             
-            // Размываем элемент
+            // Размываем ТОЛЬКО сам элемент, НЕ родительский контейнер!
             if (el.tagName === 'INPUT') {
               applyBlurToFilledInput(el);
             } else {
@@ -467,10 +467,7 @@ console.log('🔒 PassBlur: Content script starting...');
             }
             cardNumberFound = true;
             
-            // Также размываем родительский контейнер, если он есть
-            if (el.parentElement && !el.parentElement.classList.contains('passblur-stripe-processed')) {
-              applyBlurToElement(el.parentElement);
-            }
+            // УДАЛЕНО: НЕ размываем родительский контейнер - это размывает ВСЮ форму включая имя/адрес!
           }
         }
       });
@@ -480,61 +477,10 @@ console.log('🔒 PassBlur: Content script starting...');
         return; // Уже нашли и размыли, можно выходить
       }
       
-      // Ищем все Stripe контейнеры
-      const stripeContainers = document.querySelectorAll('.StripeElement, [class*="StripeElement"], [class*="_PrivateStripeElement"], [class*="stripe-card-form"], [class*="stripe"], div[class*="card"], div[class*="payment"]');
-      
-      console.log('🔒 PassBlur: Checking', stripeContainers.length, 'Stripe containers...');
-      
-      stripeContainers.forEach(container => {
-        // Пропускаем уже обработанные
-        if (container.classList.contains('passblur-stripe-processed')) {
-          return;
-        }
-        
-        // Получаем весь видимый текст из контейнера (включая все дочерние элементы)
-        let visibleText = '';
-        
-        // Проверяем textContent
-        visibleText = container.textContent || container.innerText || '';
-        
-        // Если не нашли, проверяем все дочерние элементы
-        if (!visibleText || visibleText.length === 0) {
-          const allChildren = container.querySelectorAll('*');
-          allChildren.forEach(child => {
-            const childText = child.textContent || child.innerText || '';
-            if (childText && childText.length > 0) {
-              visibleText += ' ' + childText;
-            }
-          });
-        }
-        
-        // Проверяем, есть ли в тексте номер карты
-        if (hasCardNumber(visibleText)) {
-          console.log('🔒 PassBlur: ✓✓✓ STRIPE CONTAINER WITH CARD NUMBER FOUND! Text:', visibleText.substring(0, 30), 'Blurring container...');
-          
-          // Помечаем как обработанный
-          container.classList.add('passblur-stripe-processed');
-          
-          // Применяем размытие к контейнеру с overlay
-          applyBlurToElement(container);
-          
-          console.log('🔒 PassBlur: STRIPE CONTAINER BLURRED!');
-        }
-        
-        // Также проверяем все input элементы внутри контейнера
-        const inputs = container.querySelectorAll('input');
-        inputs.forEach(input => {
-          if (input.classList.contains('passblur-input-processed')) {
-            return;
-          }
-          
-          const inputValue = getInputValue(input);
-          if (hasCardNumber(inputValue)) {
-            console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER IN STRIPE INPUT FOUND!');
-            applyBlurToFilledInput(input);
-          }
-        });
-      });
+      // ОТКЛЮЧЕНО: Агрессивное сканирование Stripe контейнеров
+      // Это размывало ВСЕ div с классами "card" или "payment", включая поля имени/адреса
+      // Теперь размываем ТОЛЬКО конкретные input поля с данными карты
+      console.log('🔒 PassBlur: Stripe container scanning DISABLED - will blur only specific input fields');
       
       
       // ФИНАЛЬНАЯ ПРОВЕРКА: проходим по текстовым узлам в формах оплаты
@@ -972,33 +918,11 @@ console.log('🔒 PassBlur: Content script starting...');
       }
     }, true);
 
-    // КРИТИЧЕСКИ ВАЖНО: Сканируем Stripe iframe сразу и периодически!
-    console.log('🔒 PassBlur: Starting Stripe iframe scanning...');
-    
-    // Сканируем сразу
-    scanForPaymentIframes();
-    
-    // Повторяем сканирование каждые 500ms первые 5 секунд (Stripe загружается асинхронно)
-    let iframeScanCount = 0;
-    const maxIframeScans = 10; // 10 раз по 500ms = 5 секунд
-    
-    const iframeScanInterval = setInterval(() => {
-      if (!isEnabled) return;
-      
-      iframeScanCount++;
-      scanForPaymentIframes();
-      
-      if (iframeScanCount >= maxIframeScans) {
-        clearInterval(iframeScanInterval);
-        console.log('🔒 PassBlur: Stripe iframe scanning completed');
-      }
-    }, 500);
-
-    // Продолжаем сканировать периодически (раз в 2 секунды)
-    setInterval(() => {
-      if (!isEnabled) return;
-      scanForPaymentIframes();
-    }, 2000);
+    // ОТКЛЮЧЕНО: НЕ размываем Stripe iframe автоматически
+    // Stripe iframe размывается СРАЗУ при открытии формы, что неправильно
+    // Нужно размывать только ПОСЛЕ ввода данных, но мы не можем получить доступ внутрь iframe
+    // Поэтому полагаемся только на размытие обычных input полей
+    console.log('🔒 PassBlur: Stripe iframe auto-blur DISABLED - will blur only filled input fields');
   }
 
   // Функция больше не используется - размытие только при автозаполнении через события
