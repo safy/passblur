@@ -756,7 +756,7 @@ console.log('🔒 PassBlur: Content script starting...');
           // ЭТО ПЕРВЫЙ ПРИОРИТЕТ - проверяем ДО всех остальных проверок!
           if (hasCardNumber(currentValue)) {
             console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER DETECTED DIRECTLY in interval! Value:', currentValue.substring(0, 20), 'Applying blur IMMEDIATELY');
-            applyBlurToFilledInput(input);
+          applyBlurToFilledInput(input);
           }
           // Проверяем, это карточное поле?
           else if (isCardInputField(input)) {
@@ -825,13 +825,13 @@ console.log('🔒 PassBlur: Content script starting...');
         
         // Обычная проверка через isCardInputField (только если это НЕ номер карты)
         if (isCardInputField(input)) {
-          // Проверяем - это вставка или автозаполнение (большое изменение за раз)
+        // Проверяем - это вставка или автозаполнение (большое изменение за раз)
           const valueLength = inputValue.length;
-          if (valueLength > 10) {
+        if (valueLength > 10) {
             console.log('🔒 PassBlur: Detected autofill/paste via input (length > 10), applying blur IMMEDIATELY');
             applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
-          }
         }
+      }
       }
       
       // Также проверяем Stripe контейнеры при вводе
@@ -886,7 +886,7 @@ console.log('🔒 PassBlur: Content script starting...');
             
             // Обычная проверка (только если это НЕ номер карты)
             if (isCardInputField(input) && inputValue.length > 10) {
-              console.log('🔒 PassBlur: Detected value via MutationObserver:', input.name);
+            console.log('🔒 PassBlur: Detected value via MutationObserver:', input.name);
               applyBlurToFilledInput(input); // БЕЗ ЗАДЕРЖКИ!
             }
           }
@@ -966,7 +966,33 @@ console.log('🔒 PassBlur: Content script starting...');
       }
     }, true);
 
-    // НЕ сканируем модальные окна автоматически - только при автозаполнении
+    // КРИТИЧЕСКИ ВАЖНО: Сканируем Stripe iframe сразу и периодически!
+    console.log('🔒 PassBlur: Starting Stripe iframe scanning...');
+    
+    // Сканируем сразу
+    scanForPaymentIframes();
+    
+    // Повторяем сканирование каждые 500ms первые 5 секунд (Stripe загружается асинхронно)
+    let iframeScanCount = 0;
+    const maxIframeScans = 10; // 10 раз по 500ms = 5 секунд
+    
+    const iframeScanInterval = setInterval(() => {
+      if (!isEnabled) return;
+      
+      iframeScanCount++;
+      scanForPaymentIframes();
+      
+      if (iframeScanCount >= maxIframeScans) {
+        clearInterval(iframeScanInterval);
+        console.log('🔒 PassBlur: Stripe iframe scanning completed');
+      }
+    }, 500);
+
+    // Продолжаем сканировать периодически (раз в 2 секунды)
+    setInterval(() => {
+      if (!isEnabled) return;
+      scanForPaymentIframes();
+    }, 2000);
   }
 
   // Функция больше не используется - размытие только при автозаполнении через события
@@ -1064,14 +1090,14 @@ console.log('🔒 PassBlur: Content script starting...');
     console.log('🔒 PassBlur: Element blurred with overlay!');
   }
 
-  // ОТКЛЮЧЕНО - не размываем iframe автоматически
+  // Сканирование и размытие iframe от Stripe/платёжных систем
   function scanForPaymentIframes() {
-    return; // Функция отключена
-    
     if (!isEnabled || !detectionFilters.creditcards) return;
 
     const allIframes = document.querySelectorAll('iframe');
+    console.log('🔒 PassBlur: [scanForPaymentIframes] Found', allIframes.length, 'iframe elements');
     
+    let foundCount = 0;
     allIframes.forEach(iframe => {
       // Пропускаем уже обработанные
       if (iframe.classList.contains('passblur-iframe-processed')) {
@@ -1090,15 +1116,27 @@ console.log('🔒 PassBlur: Content script starting...');
         'stripe', 'payment', 'card', 'checkout', 
         'billing', 'paypal', 'square', 'braintree',
         'adyen', 'карт', 'оплат', 'js.stripe.com',
-        '__privateStripeFrame', 'cardNumber'
+        '__privatestripeframe', 'cardnumber', '__privatestripe'
       ];
 
       const allText = `${src} ${name} ${id} ${title} ${className}`;
       
+      console.log('🔒 PassBlur: [scanForPaymentIframes] Checking iframe:', {
+        src: src.substring(0, 50),
+        name: name.substring(0, 30),
+        id, title, className: className.substring(0, 30)
+      });
+      
       if (paymentKeywords.some(keyword => allText.includes(keyword))) {
+        console.log('🔒 PassBlur: ✓✓✓ PAYMENT IFRAME DETECTED! Applying blur...');
         applyBlurToIframe(iframe);
+        foundCount++;
       }
     });
+    
+    if (foundCount > 0) {
+      console.log('🔒 PassBlur: [scanForPaymentIframes] Blurred', foundCount, 'payment iframes');
+    }
   }
 
   // Применить размытие к iframe
@@ -1207,6 +1245,30 @@ console.log('🔒 PassBlur: Content script starting...');
   // Проверка - является ли поле полем для ввода карты
   function isCardInputField(input) {
     if (!input || input.tagName !== 'INPUT') return false;
+
+    // ====== ПРОВЕРКА ИСКЛЮЧЕНИЙ (АБСОЛЮТНЫЙ ПРИОРИТЕТ!) ======
+    // НЕ размываем поля с именем, адресом, email, телефоном, почтовым кодом
+    const name = (input.name || '').toLowerCase();
+    const id = (input.id || '').toLowerCase();
+    const autoComplete = (input.autocomplete || '').toLowerCase();
+    const placeholder = (input.placeholder || '').toLowerCase();
+    const ariaLabel = (input.getAttribute('aria-label') || '').toLowerCase();
+    
+    const excludeKeywords = [
+      'name', 'имя', 'fname', 'lname', 'firstname', 'lastname', 'cardholder',
+      'address', 'адрес', 'street', 'улиц', 'line1', 'line2',
+      'city', 'город', 'state', 'регион', 'область', 'province', 'region',
+      'country', 'страна', 'county',
+      'zip', 'postal', 'почт', 'индекс', 'postcode',
+      'email', 'mail', 'phone', 'tel', 'mobile', 'телефон'
+    ];
+    
+    const allFieldText = `${name} ${id} ${autoComplete} ${placeholder} ${ariaLabel}`;
+    
+    // Если поле содержит исключающие ключевые слова - НЕ размываем!
+    if (excludeKeywords.some(keyword => allFieldText.includes(keyword))) {
+      return false;
+    }
 
     // ====== ПРИОРИТЕТ 0: ПРЯМАЯ ПРОВЕРКА НОМЕРА КАРТЫ ПО ЗНАЧЕНИЮ ======
     // ЭТО САМЫЙ ВЫСОКИЙ ПРИОРИТЕТ - проверяем ПЕРВЫМ!
@@ -1368,7 +1430,7 @@ console.log('🔒 PassBlur: Content script starting...');
     if (type === 'tel' || type === 'number' || inputMode === 'numeric' || inputMode === 'decimal') {
       // Если поле уже содержит цифры - проверяем, это номер карты?
       if (input.value && input.value.length > 0) {
-        const digits = input.value.replace(/\D/g, '');
+      const digits = input.value.replace(/\D/g, '');
         // Если есть 12+ цифр - это скорее всего номер карты
         if (digits.length >= 12) {
           console.log('🔒 PassBlur: ✓✓✓ CARD NUMBER DETECTED (by type + digits)! Digits:', digits.length);
