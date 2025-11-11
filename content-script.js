@@ -1414,23 +1414,8 @@ console.log('🔒 PassBlur: Content script starting...');
       'holder-name', 'holder_name', 'cardholder-name', 'cardholder_name'
     ];
 
-    // ВАЖНО: ИСКЛЮЧЕНИЯ - НЕ размываем поля имени, адреса, email, телефона
-    // Эти поля могут находиться в форме оплаты, но не должны размываться
-    const excludeKeywords = [
-      'name', 'fname', 'lname', 'firstname', 'lastname', 'fullname',
-      'address', 'street', 'city', 'state', 'zip', 'postal', 'country', 'region',
-      'email', 'phone', 'tel', 'mobile',
-      'имя', 'фамилия', 'адрес', 'город', 'область', 'индекс', 'телефон'
-    ];
-    
-    // Проверяем, не является ли это исключенным полем
-    const inputAttrs = `${name} ${id} ${placeholder} ${autoComplete} ${ariaLabel}`;
-    const isExcludedField = excludeKeywords.some(keyword => inputAttrs.includes(keyword));
-    
-    if (isExcludedField) {
-      console.log('🔒 PassBlur: Field excluded (name/address/contact):', inputAttrs.substring(0, 50));
-      return false; // НЕ размываем это поле
-    }
+    // ВАЖНО: ИСКЛЮЧЕНИЯ - уже проверены выше в начале функции (строка ~1305)
+    // Дубликат проверки удален чтобы избежать ошибок
     
     // Проверяем все атрибуты ВКЛЮЧАЯ родителей
     const allText = `${name} ${id} ${placeholder} ${autoComplete} ${ariaLabel} ${dataStripe} ${className} ${parentText}`;
