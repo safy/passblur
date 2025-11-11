@@ -1335,10 +1335,7 @@ console.log('🔒 PassBlur: Content script starting...');
       // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: номер карты может быть частично заполнен
       // Если есть 12+ цифр и поле имеет карточные атрибуты - это номер карты
       if (digits.length >= 12) {
-        const name = (input.name || '').toLowerCase();
-        const id = (input.id || '').toLowerCase();
-        const placeholder = (input.placeholder || '').toLowerCase();
-        const autoComplete = (input.autocomplete || input.getAttribute('autocomplete') || '').toLowerCase();
+        // Используем уже объявленные переменные выше
         const allText = `${name} ${id} ${placeholder} ${autoComplete}`;
         
         // Проверяем наличие карточных ключевых слов
@@ -1363,13 +1360,7 @@ console.log('🔒 PassBlur: Content script starting...');
     }
 
     // ====== ПРИОРИТЕТ 2: ПРОВЕРКА АТРИБУТОВ ======
-    const name = (input.name || '').toLowerCase();
-    const id = (input.id || '').toLowerCase();
-    const placeholder = (input.placeholder || '').toLowerCase();
-    const autoCompleteAttr = input.autocomplete || input.getAttribute('autocomplete');
-    const autoComplete = (autoCompleteAttr || '').toLowerCase();
-    const ariaLabelAttr = input.getAttribute('aria-label');
-    const ariaLabel = (ariaLabelAttr || '').toLowerCase();
+    // name, id, placeholder, autoComplete, ariaLabel уже объявлены выше - используем их!
     const dataStripeAttr = input.getAttribute('data-stripe');
     const dataStripe = (dataStripeAttr || '').toLowerCase();
     const classNameAttr = input.className;
